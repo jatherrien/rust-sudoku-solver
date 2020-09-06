@@ -10,7 +10,6 @@ struct Grid {
 
 enum CellValue {
     FIXED(u8),
-    GUESS(u8),
     UNKNOWN(Vec<u8>)
 }
 
@@ -35,23 +34,69 @@ impl Grid {
 
     fn print(&self) {
         for r in 0..9 {
-            if (r % 3 == 0) && (r > 0) {
-                println!("---+---+---");
-            }
+
+            // Each row corresponds to 3 rows since we leave room for guesses
+            let mut row1 = String::new();
+            let mut row2 = String::new();
+            let mut row3 = String::new();
 
             for c in 0..9 {
-                if (c % 3 == 0) && (c > 0) {
-                    print!("|");
-                }
 
                 let value = self.get(r, c).unwrap_or_else(|err| panic!());
-                match *value.borrow() {
-                    CellValue::FIXED(x) => print!("{}", x),
-                    _ => print!(" ")
+                let value = value.borrow();
+                match &*value {
+                    CellValue::FIXED(x) => {
+                        row1.push_str("   ");
+                        row2.push(' '); row2.push_str(&x.to_string()); row2.push(' ');
+                        row3.push_str("   ");
+                    },
+                    CellValue::UNKNOWN(x) => {
+                        Grid::process_unknown(&x, 1, &mut row1);
+                        Grid::process_unknown(&x, 2, &mut row1);
+                        Grid::process_unknown(&x, 3, &mut row1);
+
+                        Grid::process_unknown(&x, 4, &mut row2);
+                        Grid::process_unknown(&x, 5, &mut row2);
+                        Grid::process_unknown(&x, 6, &mut row2);
+
+                        Grid::process_unknown(&x, 7, &mut row3);
+                        Grid::process_unknown(&x, 8, &mut row3);
+                        Grid::process_unknown(&x, 9, &mut row3);
+                    }
                 };
+
+                if (c % 3 == 2) && (c < 8){
+                    row1.push('\u{2503}');
+                    row2.push('\u{2503}');
+                    row3.push('\u{2503}');
+                } else if c < 8{
+                    row1.push('┆');
+                    row2.push('┆');
+                    row3.push('┆');
+                }
+
+
             }
 
-            print!("\n");
+            println!("{}", row1);
+            println!("{}", row2);
+            println!("{}", row3);
+
+            if (r % 3 == 2) && (r < 8) {
+                //println!("███████████████████████████████████");
+                println!("━━━┿━━━┿━━━╋━━━┿━━━┿━━━╋━━━┿━━━┿━━━")
+            } else if r < 8{
+                //println!("───┼───┼───╂───┼───┼───╂───┼───┼───")
+                println!("┄┄┄┼┄┄┄┼┄┄┄╂┄┄┄┼┄┄┄┼┄┄┄╂┄┄┄┼┄┄┄┼┄┄┄")
+            }
+        }
+    }
+
+    fn process_unknown(x: &Vec<u8>, digit: u8, row: &mut String){
+        if x.contains(&digit) {
+            row.push('*');
+        } else{
+            row.push(' ');
         }
     }
 
