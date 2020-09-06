@@ -1,8 +1,8 @@
 use std::rc::Rc;
-use std::cell::RefCell;
+use std::cell::{RefCell, RefMut};
+use std::borrow::{Borrow, BorrowMut};
 
 struct Grid {
-
     rows: Vec<Vec<Rc<RefCell<CellValue>>>>, // Read from top to bottom
     columns: Vec<Vec<Rc<RefCell<CellValue>>>>,
     sections: Vec<Vec<Rc<RefCell<CellValue>>>>
@@ -32,6 +32,27 @@ impl Grid {
         return Ok(Rc::clone(cell));
     }
 
+    fn get_vectors_containing_coordinates(&self, r: usize, c:usize) -> Result<(&Vec<Rc<RefCell<CellValue>>>, &Vec<Rc<RefCell<CellValue>>>, &Vec<Rc<RefCell<CellValue>>>), &str> {
+
+        let row = match self.rows.get(r) {
+            Some(x) => x,
+            None => {return Err("Row index is out of bounds")}
+        };
+
+        let column = match self.columns.get(c) {
+            Some(x) => x,
+            None => {return Err("Column index is out of bounds")}
+        };
+
+        // We know that row and column are in bounds now so we can perform an unwrapped get
+        // But we first need to identify the correct coordinates
+        let section_index = (r / 3) * 3 + c / 3;
+        let section = self.sections.get(section_index).unwrap();
+
+        return Ok((row, column, section));
+
+    }
+
     fn print(&self) {
         for r in 0..9 {
 
@@ -42,9 +63,9 @@ impl Grid {
 
             for c in 0..9 {
 
-                let value = self.get(r, c).unwrap_or_else(|err| panic!());
-                let value = value.borrow();
-                match &*value {
+                let value = self.get(r, c).unwrap();
+                let value = &*value;
+                match &*value.borrow() {
                     CellValue::FIXED(x) => {
                         row1.push_str("   ");
                         row2.push(' '); row2.push_str(&x.to_string()); row2.push(' ');
@@ -154,10 +175,63 @@ fn initial_empty_cell() -> RefCell<CellValue> {
     return RefCell::new(CellValue::UNKNOWN(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]));
 }
 
+/**
+    Only removes possibilities; does not add any
+
+*/
+fn calculate_and_remove_possibilities(grid: &mut Grid){
+
+    for r in 0..9{
+        for c in 0..9 {
+            let cell = &*grid.get(r, c).unwrap();
+
+            let digit : u8 = match &*cell.borrow() {
+                CellValue::FIXED(digit) => {digit.clone()},
+                CellValue::UNKNOWN(_) => {continue}
+            };
+
+            let (row, column, section) = grid.get_vectors_containing_coordinates(r, c).unwrap();
+            let fun = |vec: &Vec<Rc<RefCell<CellValue>>>| vec.iter().for_each(|x| remove_possibility(x.borrow(), &digit));
+
+            fun(row);
+            fun(column);
+            fun(section);
+        }
+    }
+}
+
+
+
+fn remove_possibility(cell: &RefCell<CellValue>, to_remove: &u8){
+    let borrowed_cell = cell.borrow();
+    let value = &*borrowed_cell;
+    let existing_possibilities = match value {
+        CellValue::FIXED(_) => {return},
+        CellValue::UNKNOWN(existing_possibilities) => existing_possibilities
+    };
+
+    let mut new_possibilities = existing_possibilities.clone();
+
+    match new_possibilities.binary_search(to_remove) {
+        Ok(index_remove) => {new_possibilities.remove(index_remove);},
+        _ => {}
+    };
+
+    drop(borrowed_cell);
+
+    let new_cell = CellValue::UNKNOWN(new_possibilities);
+    cell.replace(new_cell);
+}
+
 
 fn main() {
-    println!("Hello, world!");
-    let grid = retrieve_grid();
+    println!("Printing grid before possibilities removed");
+    let mut grid = retrieve_grid();
+    grid.print();
+
+    println!("Printing grid after invalid possibilities removed");
+
+    calculate_and_remove_possibilities(&mut grid);
     grid.print();
 
 }
