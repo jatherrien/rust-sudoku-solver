@@ -1,20 +1,157 @@
-use std::rc::Rc;
-use std::cell::{RefCell, RefMut};
-use std::borrow::{Borrow, BorrowMut};
-
-struct Grid {
-    rows: Vec<Vec<Rc<RefCell<CellValue>>>>, // Read from top to bottom
-    columns: Vec<Vec<Rc<RefCell<CellValue>>>>,
-    sections: Vec<Vec<Rc<RefCell<CellValue>>>>
-}
+use std::rc::{Rc, Weak};
+use std::cell::{RefCell, Ref};
 
 enum CellValue {
     FIXED(u8),
     UNKNOWN(Vec<u8>)
 }
 
+struct Cell {
+    x: usize,
+    y: usize,
+    value: RefCell<CellValue>,
+    row: Weak<RefCell<Line>>,
+    column: Weak<RefCell<Line>>,
+    section: Weak<RefCell<Line>>,
+}
+
+impl Cell {
+    fn set(&self, digit: u8){
+        self.value.replace(CellValue::FIXED(digit));
+
+        // We fully expect our row, column, and section to still be here even though the Rust compiler won't guarantee it
+        // Panic-ing if they're not present is perfectly reasonable
+
+        let row = &*self.row.upgrade().unwrap();
+        let row = &*row.borrow();
+
+        let column = &*self.column.upgrade().unwrap();
+        let column = &*column.borrow();
+
+        let section = &*self.section.upgrade().unwrap();
+        let section = &*section.borrow();
+
+        Cell::process_possibilities(row, digit);
+        Cell::process_possibilities(column, digit);
+        Cell::process_possibilities(section, digit);
+    }
+
+    fn process_possibilities(line: &Line, digit: u8){
+        for (_index, cell) in line.iter().enumerate() {
+            let cell = &**cell;
+
+            // Find the new CellValue to set; may be None if the cell was already fixed or had no possibilities remaining
+            let new_value_option : Option<CellValue> = {
+                let value = &*cell.value.borrow();
+
+                match value {
+                    CellValue::UNKNOWN(possibilities) => {
+                        let mut new_possibilities = possibilities.clone();
+
+                        match new_possibilities.binary_search(&digit) {
+                            Ok(index_remove) => {new_possibilities.remove(index_remove);},
+                            _ => {}
+                        };
+
+                        if new_possibilities.len() == 1 {
+                            let remaining_digit = new_possibilities.first().unwrap().clone();
+                            Some(CellValue::FIXED(remaining_digit))
+                        } else if new_possibilities.len() == 0 {
+                            None
+                        } else {
+                            Some(CellValue::UNKNOWN(new_possibilities))
+                        }
+                    },
+                    _ => {None}
+                }
+            };
+
+            match new_value_option {
+                Some(new_value) => {
+                    match new_value {
+                        CellValue::UNKNOWN(_) => {
+                            cell.value.replace(new_value);
+                        },
+                        CellValue::FIXED(new_digit) => {
+                            cell.set(new_digit); // Recursive
+                        }
+
+                    }
+                },
+                None => {}
+            }
+
+        }
+    }
+}
+
+type Line = Vec<Rc<Cell>>;
+type MultiMut<T> = Rc<RefCell<T>>;
+
+struct Grid {
+    rows: Vec<MultiMut<Line>>, // Read from top to bottom
+    columns: Vec<MultiMut<Line>>,
+    sections: Vec<MultiMut<Line>>,
+}
+
 impl Grid {
-    fn get(&self, r: usize, c: usize) -> Result<Rc<RefCell<CellValue>>, &str> {
+    fn new() -> Grid {
+
+        let mut rows: Vec<MultiMut<Line>> = Vec::new();
+        let mut columns: Vec<MultiMut<Line>> = Vec::new();
+        let mut sections: Vec<MultiMut<Line>> = Vec::new();
+
+        for _i in 0..9 {
+            rows.push(Rc::new(RefCell::new(Line::new())));
+            columns.push(Rc::new(RefCell::new(Line::new())));
+            sections.push(Rc::new(RefCell::new(Line::new())));
+        }
+
+        for row_index in 0..9 {
+            let row_rc = unsafe {
+                rows.get_unchecked(row_index)
+            };
+
+            let row_ref = &mut *row_rc.borrow_mut();
+
+            for column_index in 0..9 {
+                let section_index = (row_index / 3) * 3 + column_index / 3;
+                let (column_rc, section_rc) = unsafe {
+                    (columns.get_unchecked_mut(column_index),
+                    sections.get_unchecked_mut(section_index))
+                };
+
+                let column_weak = Rc::downgrade(column_rc);
+                let column_ref = &mut *column_rc.borrow_mut();
+
+                let section_weak = Rc::downgrade(section_rc);
+                let section_ref = &mut *section_rc.borrow_mut();
+
+                let row_weak = Rc::downgrade(row_rc);
+
+                let cell = Cell {
+                    x: row_index,
+                    y: column_index,
+                    value: RefCell::new(CellValue::UNKNOWN(vec![1, 2, 3, 4, 5, 6, 7, 8, 9])),
+                    row: row_weak,
+                    column: column_weak,
+                    section: section_weak
+                };
+
+                let ref1 = Rc::new(cell);
+                let ref2 = Rc::clone(&ref1);
+                let ref3 = Rc::clone(&ref1);
+
+                row_ref.push(ref1);
+                column_ref.push(ref2);
+                section_ref.push(ref3);
+            }
+        }
+
+        return Grid { rows, columns, sections };
+    }
+
+    fn get(&self, r: usize, c: usize) -> Result<Rc<Cell>, &str> {
         if (r > 9) | (c > 9) {
             return Err("Row or column indices are out of bounds");
         }
@@ -24,6 +161,8 @@ impl Grid {
             None => {return Err("Row index is out of bounds")}
         };
 
+        let row = &*(&**row).borrow();
+
         let cell = match row.get(c) {
             Some(x) => x,
             None => {return Err("Column index is out of bounds")}
@@ -32,26 +171,6 @@ impl Grid {
         return Ok(Rc::clone(cell));
     }
 
-    fn get_vectors_containing_coordinates(&self, r: usize, c:usize) -> Result<(&Vec<Rc<RefCell<CellValue>>>, &Vec<Rc<RefCell<CellValue>>>, &Vec<Rc<RefCell<CellValue>>>), &str> {
-
-        let row = match self.rows.get(r) {
-            Some(x) => x,
-            None => {return Err("Row index is out of bounds")}
-        };
-
-        let column = match self.columns.get(c) {
-            Some(x) => x,
-            None => {return Err("Column index is out of bounds")}
-        };
-
-        // We know that row and column are in bounds now so we can perform an unwrapped get
-        // But we first need to identify the correct coordinates
-        let section_index = (r / 3) * 3 + c / 3;
-        let section = self.sections.get(section_index).unwrap();
-
-        return Ok((row, column, section));
-
-    }
 
     fn print(&self) {
         for r in 0..9 {
@@ -63,9 +182,11 @@ impl Grid {
 
             for c in 0..9 {
 
-                let value = self.get(r, c).unwrap();
-                let value = &*value;
-                match &*value.borrow() {
+                let cell = &*self.get(r, c).unwrap();
+                let value = &*cell.value.borrow();
+
+
+                match value {
                     CellValue::FIXED(x) => {
                         row1.push_str("   ");
                         row2.push(' '); row2.push_str(&x.to_string()); row2.push(' ');
@@ -120,60 +241,58 @@ impl Grid {
             row.push(' ');
         }
     }
-
-    fn new() -> Grid {
-        // Rows first; we need to create cells for all of them
-        let mut rows: Vec<Vec<Rc<RefCell<CellValue>>>> = Vec::new();
-        for _r in 0..9 {
-            let mut new_row: Vec<Rc<RefCell<CellValue>>> = Vec::new();
-
-            for _i in 0..9 {
-                let empty_cell = initial_empty_cell();
-                new_row.push(Rc::new(empty_cell));
-
-            }
-            rows.push(new_row);
-        }
-
-            // Columns next; now we have to retrieve the cells from the different rows
-            let mut columns : Vec<Vec<Rc<RefCell<CellValue>>>> = Vec::new();
-            for c in 0..9 {
-                let mut new_column : Vec<Rc<RefCell<CellValue>>> = Vec::new();
-                for r in 0..9{
-                    new_column.push(Rc::clone(&rows.get(r).unwrap()[c]));
-                }
-                columns.push(new_column);
-            }
-
-            // Sections next; now we have to retrieve the cells from different rows and columns
-            // We read sections from left to right, top to bottom
-            let mut sections : Vec<Vec<Rc<RefCell<CellValue>>>> = Vec::new();
-            for r in 0..3 {
-                for c in 0..3 {
-                    let mut new_section : Vec<Rc<RefCell<CellValue>>> = Vec::new();
-
-                    for internal_r in 0..3 {
-                        let global_r = 3*r + internal_r;
-
-                        for internal_c in 0..3 {
-                            let global_c = 3*c + internal_c;
-
-                            new_section.push(Rc::clone(&rows.get(global_r).unwrap()[global_c]));
-                        }
-                    }
-
-                    sections.push(new_section);
-
-                }
-            }
-
-        return Grid { rows, columns, sections };
-    }
 }
 
-fn initial_empty_cell() -> RefCell<CellValue> {
-    return RefCell::new(CellValue::UNKNOWN(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]));
+
+fn main() {
+    let grid = Grid::new();
+
+    println!("Now setting some values");
+
+    
+    grid.get(0, 4).unwrap().set(8);
+    grid.get(0, 5).unwrap().set(5);
+    grid.get(0, 6).unwrap().set(6);
+
+    grid.get(2, 3).unwrap().set(9);
+    grid.get(2, 4).unwrap().set(4);
+    grid.get(2, 5).unwrap().set(3);
+    grid.get(2, 6).unwrap().set(5);
+    grid.get(2, 7).unwrap().set(7);
+
+    grid.get(3, 0).unwrap().set(8);
+    grid.get(3, 2).unwrap().set(2);
+    grid.get(3, 3).unwrap().set(6);
+    grid.get(3, 4).unwrap().set(7);
+    grid.get(3, 5).unwrap().set(4);
+    grid.get(3, 6).unwrap().set(9);
+
+    grid.get(4, 4).unwrap().set(9);
+    grid.get(4, 8).unwrap().set(5);
+
+    grid.get(5, 1).unwrap().set(6);
+    grid.get(5, 6).unwrap().set(2);
+
+    grid.get(6, 1).unwrap().set(8);
+    grid.get(6, 8).unwrap().set(2);
+
+    grid.get(7, 3).unwrap().set(7);
+    grid.get(7, 5).unwrap().set(6);
+    grid.get(7, 7).unwrap().set(5);
+    grid.get(7, 8).unwrap().set(4);
+
+    grid.get(8, 2).unwrap().set(7);
+    grid.get(8, 3).unwrap().set(4);
+
+    grid.print();
 }
+
+
+
+
+
+/*
+
 
 /**
     Only removes possibilities; does not add any
@@ -225,11 +344,7 @@ fn remove_possibility(cell: &RefCell<CellValue>, to_remove: &u8){
 
 
 fn main() {
-    println!("Printing grid before possibilities removed");
     let mut grid = retrieve_grid();
-    grid.print();
-
-    println!("Printing grid after invalid possibilities removed");
 
     calculate_and_remove_possibilities(&mut grid);
     grid.print();
@@ -321,3 +436,6 @@ fn retrieve_grid() -> Grid {
 
     return grid;
 }
+
+
+ */
