@@ -1,6 +1,7 @@
 use std::rc::{Rc, Weak};
 use std::cell::{RefCell};
 use std::collections::HashSet;
+use std::str::FromStr;
 
 const DEBUG: bool = false;
 
@@ -734,6 +735,8 @@ fn solve_line(grid: &Grid, line: &Line){
         println!("Solving {:?} {}", line.line_type, line.index);
     }
 
+    line.do_update.replace(false);
+
     search_single_possibility(line);
     if DEBUG {
         grid.print();
@@ -749,16 +752,17 @@ fn solve_line(grid: &Grid, line: &Line){
         grid.print();
     }
 
-    line.do_update.replace(false);
 }
 
 fn solve_grid(grid: &Grid) {
     'outer: loop {
+        let mut ran_something = false;
         for (_index, line_ref) in grid.rows.iter().enumerate() {
             //println!("Processing row {}", _index);
             let line_ref = &*(&**line_ref).borrow();
             if line_ref.do_update() {
                 solve_line(&grid, line_ref);
+                ran_something = true;
             }
         }
         for (_index, line_ref) in grid.columns.iter().enumerate() {
@@ -766,6 +770,7 @@ fn solve_grid(grid: &Grid) {
             let line_ref = &*(&**line_ref).borrow();
             if line_ref.do_update() {
                 solve_line(&grid, line_ref);
+                ran_something = true;
             }
         }
         for (_index, line_ref) in grid.sections.iter().enumerate() {
@@ -773,7 +778,13 @@ fn solve_grid(grid: &Grid) {
             let line_ref = &*(&**line_ref).borrow();
             if line_ref.do_update() {
                 solve_line(&grid, line_ref);
+                ran_something = true;
             }
+        }
+
+        if !ran_something{ // No lines have changed since we last analyzed them
+            println!("Unable to find a solution (no changes)");
+            break 'outer;
         }
 
         // Check if complete or invalid
@@ -804,7 +815,7 @@ fn solve_grid(grid: &Grid) {
     }
 }
 
-
+/*
 fn main() {
     let grid = Grid::new();
 
@@ -852,9 +863,57 @@ fn main() {
     solve_grid(&grid);
     grid.print();
     println!("\n");
+}
+*/
 
+fn main() {
+    let grid = read_grid().unwrap();
 
+    grid.print();
 
+    println!("Solving grid");
+    solve_grid(&grid);
+    grid.print();
+}
+
+fn read_grid() -> Result<Grid, &'static str> {
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .from_reader(std::io::stdin());
+    let grid = Grid::new();
+    let mut row = 0;
+    for result in reader.records() {
+        if row > 8 {
+            return Err("Hit row limit");
+        }
+
+        let record = result.unwrap();
+
+        for column in 0..9 {
+            let value = record.get(column);
+            match value {
+                Some(x) => {
+                    let digit_result = u8::from_str(x);
+                    match digit_result {
+                        Ok(digit) => {
+                            if digit > 0 {
+                                grid.get(row, column).unwrap().set(digit);
+                            }
+
+                        },
+                        Err(_error) => {return Err("Invalid cell value")}
+                    };
+
+                },
+                None => {}
+            }
+        }
+
+        row = row + 1;
+
+    }
+
+    return Ok(grid);
 }
 
 #[test]
