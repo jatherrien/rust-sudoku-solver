@@ -337,6 +337,38 @@ impl Grid {
     }
 }
 
+impl Clone for Grid {
+    fn clone(&self) -> Self {
+        let mut new = Grid::new();
+        new.clone_from(&self);
+
+        return new;
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        for x in 0..9 {
+            for y in 0..9 {
+                let source_value = source.get(x, y).unwrap().get_value_copy();
+                self.get(x, y).unwrap().set_value_exact(source_value);
+            }
+        }
+
+        for i in 0..9 {
+            let new_row = &*self.rows.get(i).unwrap().borrow();
+            let source_row = &*source.rows.get(i).unwrap().borrow();
+            new_row.do_update.replace(source_row.do_update());
+
+            let new_column = &*self.columns.get(i).unwrap().borrow();
+            let source_column = &*source.columns.get(i).unwrap().borrow();
+            new_column.do_update.replace(source_column.do_update());
+
+            let new_section = &*self.sections.get(i).unwrap().borrow();
+            let source_section = &*source.sections.get(i).unwrap().borrow();
+            new_section.do_update.replace(source_section.do_update());
+        }
+    }
+}
+
 
 
 
@@ -346,7 +378,6 @@ impl Grid {
 
 struct FauxCell{
     index: usize,
-    real_cell: Rc<Cell>,
     possibilities: HashSet<u8>,
     in_group: bool
 }
@@ -364,12 +395,9 @@ impl FauxCell {
 struct FauxLine (Vec<FauxCell>);
 
 impl FauxLine {
-    fn get_mut(&mut self, index: usize) -> Option<&mut FauxCell>{
-        return self.0.get_mut(index);
-    }
 
     fn num_in_group(&self) -> usize {
-        self.0.iter().filter(|fauxcell| fauxcell.in_group).count()
+        self.0.iter().filter(|faux_cell| faux_cell.in_group).count()
     }
 
     fn num_out_group(&self) -> usize {
@@ -432,7 +460,6 @@ fn bisect_possibility_groups(line: &Line, cells_of_interest: Vec<usize>){
 
             let faux_cell = FauxCell {
                 index: i,
-                real_cell: cell,
                 possibilities: faux_possibilities,
                 in_group: false
             };
@@ -754,8 +781,70 @@ fn solve_line(grid: &Grid, line: &Line){
 
 }
 
-fn solve_grid(grid: &Grid) {
-    'outer: loop {
+fn find_smallest_cell(grid: &Grid) -> Option<Rc<Cell>>{
+    // Find a cell of smallest size (in terms of possibilities) and make a guess
+    // Can assume that no cells of only possibility 1 exist
+
+    let mut smallest_cell : Option<Rc<Cell>> = None;
+    let mut smallest_size = usize::MAX;
+
+    'outer: for x in 0..9 {
+        for y in 0..9 {
+            let cell_rc = grid.get(x, y).unwrap();
+            let cell = &*grid.get(x, y).unwrap();
+            let cell_value = &*cell.value.borrow();
+
+            match cell_value {
+                CellValue::UNKNOWN(possibilities) => {
+                    if (possibilities.len() < smallest_size) && (possibilities.len() > 0){
+                        smallest_size = possibilities.len();
+                        smallest_cell = Some(cell_rc);
+                    }
+                },
+                _ => {}
+            }
+
+            if smallest_size <= 2 {
+                break 'outer; // We aren't going to get smaller
+            }
+
+        }
+    }
+    smallest_cell
+
+}
+
+
+enum SolveStatus {
+    COMPLETE,
+    UNFINISHED,
+    INVALID
+}
+
+fn solve_grid(grid: &mut Grid) -> SolveStatus{
+    // Code is kind of messy so here it goes - solve_grid first tries to solve without any guesses
+    // If that's not enough and a guess is required, then solve_grid_guess is called
+    // solve_grid_guess runs through all the possibilities for the smallest cell, trying to solve them
+    // through calling this function.
+    // solve_grid_no_guess tries to solve without any guesses.
+
+    let mut status = solve_grid_no_guess(grid);
+    status = match status {
+        SolveStatus::UNFINISHED => {
+            solve_grid_guess(grid)
+        },
+        _ => {status}
+    };
+
+    match status {
+        SolveStatus::UNFINISHED => panic!("solve_grid_guess should never return UNFINISHED"),
+        _ => return status
+    }
+}
+
+fn solve_grid_no_guess(grid: &mut Grid) -> SolveStatus{
+
+    loop {
         let mut ran_something = false;
         for (_index, line_ref) in grid.rows.iter().enumerate() {
             //println!("Processing row {}", _index);
@@ -783,8 +872,7 @@ fn solve_grid(grid: &Grid) {
         }
 
         if !ran_something{ // No lines have changed since we last analyzed them
-            println!("Unable to find a solution (no changes)");
-            break 'outer;
+            return SolveStatus::UNFINISHED;
         }
 
         // Check if complete or invalid
@@ -799,8 +887,8 @@ fn solve_grid(grid: &Grid) {
                     CellValue::UNKNOWN(possibilities) => {
                         appears_complete = false;
                         if possibilities.len() == 0 {
-                            println!("Unable to find a solution");
-                            break 'outer;
+                            return SolveStatus::INVALID;
+
                         }
                     },
                     CellValue::FIXED(_) => {}
@@ -809,70 +897,52 @@ fn solve_grid(grid: &Grid) {
         }
 
         if appears_complete {
-            break 'outer;
+            return SolveStatus::COMPLETE;
         }
-
     }
+
 }
 
-/*
-fn main() {
-    let grid = Grid::new();
+fn solve_grid_guess(grid: &mut Grid) -> SolveStatus{
+    let smallest_cell = find_smallest_cell(grid);
+    let smallest_cell = match smallest_cell {
+        Some(cell) => cell,
+        None => return SolveStatus::INVALID
+    };
 
-    println!("Now setting some values");
+    let possibilities = smallest_cell.get_value_possibilities().unwrap();
+    for (_index, &digit) in possibilities.iter().enumerate() {
+        let mut grid_copy = grid.clone();
+        grid_copy.get(smallest_cell.x, smallest_cell.y).unwrap().set(digit);
+        let status = solve_grid(&mut grid_copy);
 
-    
-    grid.get(0, 4).unwrap().set(8);
-    grid.get(0, 5).unwrap().set(5);
-    grid.get(0, 6).unwrap().set(6);
+        match status {
+            SolveStatus::COMPLETE => {
+                grid.clone_from(&grid_copy);
+                return SolveStatus::COMPLETE;
+            },
+            SolveStatus::UNFINISHED => {
+                panic!("solve_grid should never return UNFINISHED")
+            },
+            SolveStatus::INVALID => {
+                continue;
+            }
+        }
+    }
 
-    grid.get(2, 3).unwrap().set(9);
-    grid.get(2, 4).unwrap().set(4);
-    grid.get(2, 5).unwrap().set(3);
-    grid.get(2, 6).unwrap().set(5);
-    grid.get(2, 7).unwrap().set(7);
+    return SolveStatus::INVALID;
 
-    grid.get(3, 0).unwrap().set(8);
-    grid.get(3, 2).unwrap().set(2);
-    grid.get(3, 3).unwrap().set(6);
-    grid.get(3, 4).unwrap().set(7);
-    grid.get(3, 5).unwrap().set(4);
-    grid.get(3, 6).unwrap().set(9);
-
-    grid.get(4, 4).unwrap().set(9);
-    grid.get(4, 8).unwrap().set(5);
-
-    grid.get(5, 1).unwrap().set(6);
-    grid.get(5, 6).unwrap().set(2);
-
-    grid.get(6, 1).unwrap().set(8);
-    grid.get(6, 8).unwrap().set(2);
-
-    grid.get(7, 3).unwrap().set(7);
-    grid.get(7, 5).unwrap().set(6);
-    grid.get(7, 7).unwrap().set(5);
-    grid.get(7, 8).unwrap().set(4);
-
-    grid.get(8, 2).unwrap().set(7);
-    grid.get(8, 3).unwrap().set(4);
-
-    grid.print();
-
-    println!("Now going to start a solver on it");
-
-    solve_grid(&grid);
-    grid.print();
-    println!("\n");
 }
-*/
+
+
 
 fn main() {
-    let grid = read_grid().unwrap();
+    let mut grid = read_grid().unwrap();
 
     grid.print();
 
     println!("Solving grid");
-    solve_grid(&grid);
+    solve_grid(&mut grid);
     grid.print();
 }
 
