@@ -2,7 +2,7 @@ use std::rc::{Rc, Weak};
 use std::cell::{RefCell};
 use std::fmt::Formatter;
 
-static mut DEBUG: bool = false;
+pub static mut DEBUG: bool = false;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CellValue {

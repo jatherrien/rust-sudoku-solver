@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use crate::grid::{Cell, Line, Grid, CellValue, LineType};
 
-static mut DEBUG: bool = false;
+pub static mut DEBUG: bool = false;
 
 struct FauxCell{
     index: usize,
