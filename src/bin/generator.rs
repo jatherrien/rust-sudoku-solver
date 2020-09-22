@@ -21,6 +21,7 @@ fn main() {
         unsafe {
             sudoku_solver::grid::DEBUG = true;
             sudoku_solver::solver::DEBUG = true;
+            sudoku_solver::generator::DEBUG = true;
         }
     }
 

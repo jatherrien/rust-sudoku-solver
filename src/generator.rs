@@ -1,8 +1,10 @@
-use crate::grid::{Cell, Grid, CellValue};
+use crate::grid::{Cell, Grid, CellValue, Line};
 use crate::solver::{solve_grid_no_guess, SolveStatus, find_smallest_cell};
 use std::rc::Rc;
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
+
+pub static mut DEBUG : bool = false;
 
 // Extension of SolveStatus
 pub enum GenerateStatus {
@@ -79,17 +81,89 @@ impl Grid {
     }
 }
 
+impl Cell {
+    fn delete_value(&self){
+        unsafe {
+            if DEBUG {
+                println!("Cell {}, {} had its value deleted.", self.x, self.y);
+            }
+        }
+
+        self.set_value_exact(CellValue::Unknown(vec![])); // placeholder
+
+        // This will reset all the possibilities for this cell and the ones that might have been limited by this cell
+        self.section.upgrade().unwrap().borrow().recalculate_and_set_possibilities();
+        self.row.upgrade().unwrap().borrow().recalculate_and_set_possibilities();
+        self.column.upgrade().unwrap().borrow().recalculate_and_set_possibilities();
+
+    }
+
+    /**
+        As part of delete_value, we need to manually recalculate possibilities for not just the cell whose value we deleted,
+        but also the other empty cells in the same row, column, and section.
+    */
+    fn calculate_possibilities(&self) -> Vec<u8> {
+        // Need to calculate possibilities for this cell
+        let mut possibilities = vec![1, 2, 3, 4, 5, 6, 7, 8, 9];
+        fn eliminate_possibilities(possibilities: &mut Vec<u8>, line: &Line, cell: &Cell){
+            for (_index, other) in line.vec.iter().enumerate(){
+                if other.x != cell.x || other.y != cell.y {
+                    let value = &*other.value.borrow();
+                    match value {
+                        CellValue::Fixed(digit) => {
+                            let location = possibilities.binary_search(digit);
+                            match location {
+                                Ok(location) => {
+                                    possibilities.remove(location);
+                                }
+                                Err(_) => {}
+                            }
+                        }
+                        CellValue::Unknown(_) => {}
+                    }
+                }
+            }
+        }
+
+        eliminate_possibilities(&mut possibilities, &self.section.upgrade().unwrap().borrow(), self);
+        eliminate_possibilities(&mut possibilities, &self.row.upgrade().unwrap().borrow(), self);
+        eliminate_possibilities(&mut possibilities, &self.column.upgrade().unwrap().borrow(), self);
+
+        return possibilities;
+    }
+}
+
+impl Line {
+    fn recalculate_and_set_possibilities(&self) {
+        for (_index, cell) in self.vec.iter().enumerate() {
+            let cell = &**cell;
+            let new_possibilities = {
+                let cell_value = &*cell.value.borrow();
+                match cell_value {
+                    CellValue::Fixed(_) => { continue; }
+                    CellValue::Unknown(_) => {
+                        cell.calculate_possibilities()
+                    }
+                }
+            };
+
+            cell.set_value_exact(CellValue::Unknown(new_possibilities));
+        }
+    }
+}
+
 pub fn generate_grid(seed: u64) -> (Grid, i32) {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
 
-    let digit_excluded = rng.gen_range(1, 10);
-
-    let mut num_hints = 0;
+    let mut num_hints;
     let mut grid : Grid = loop {
         // First step; randomly assign 8 different digits to different empty cells and see if there's a possible solution
         // We have to ensure that 8 of the digits appear at least once, otherwise the solution can't be unique because you could interchange the two missing digits throughout the puzzle
         // We do this in a loop so that if we are really unlucky and our guesses stop there from being any solution, we can easily re-run it
         let mut grid = Grid::new();
+        num_hints = 0;
+
+        let digit_excluded = rng.gen_range(1, 10);
 
         for digit in 1..10 {
             if digit != digit_excluded {
@@ -112,29 +186,27 @@ pub fn generate_grid(seed: u64) -> (Grid, i32) {
     };
 
     // Alright, we now have a grid that we can start adding more guesses onto until we find a unique solution
+    grid =
     'outer: loop {
         num_hints = num_hints + 1;
         let cell = grid.get_random_empty_cell(&mut rng).unwrap(); // We unwrap because if somehow we're filled each cell without finding a solution, that's reason for a panic
         let cell = &*cell;
-        let cell_possibilities = cell.get_value_possibilities().expect("An empty cell has no possibilities");
+        let mut cell_possibilities = cell.get_value_possibilities().expect("An empty cell has no possibilities");
 
         // Let's scramble the order
-        let cell_possibilities = cell_possibilities.iter().choose_multiple(&mut rng, cell_possibilities.len());
+        cell_possibilities.shuffle(&mut rng);
 
         for (_index, digit) in cell_possibilities.iter().enumerate() {
-            if **digit == digit_excluded {
-                continue;
-            }
 
             let grid_clone = grid.clone();
             let cell = &*grid_clone.get(cell.x, cell.y).unwrap();
 
-            cell.set(**digit);
+            cell.set(*digit);
 
             let status = solve_grid(&grid_clone);
             match status {
                 GenerateStatus::UniqueSolution => { // We're done!
-                    return (grid_clone, num_hints);
+                    break 'outer grid_clone;
                 }
                 GenerateStatus::Unfinished => {
                     panic!("solve_grid should never return UNFINISHED")
@@ -148,15 +220,53 @@ pub fn generate_grid(seed: u64) -> (Grid, i32) {
                 }
             }
 
-        }
+        };
 
         // If we reach this point in the loop, then none of the possibilities for cell provided any solution
         // Which means something serious happened before in the solving process - reason for panic
-        //eprint!("No valid hints were found for puzzle\n{} at cell ({}, {})", grid, cell.x, cell.y);
-        //panic!("Unable to continue as puzzle is invalid");
-        num_hints = num_hints - 1;
+        eprint!("No valid hints were found for puzzle\n{} at cell ({}, {})", grid, cell.x, cell.y);
+        panic!("Unable to continue as puzzle is invalid");
 
+
+    };
+
+    // At this point we have a valid puzzle, but from experience it has way too many guesses, and many of them
+    // are likely not needed. Let's now try removing a bunch.
+    let mut non_empty_cells = Vec::new();
+    for x in 0..9 {
+        for y in 0..9 {
+            let cell = grid.get(x, y).unwrap();
+            let value = &*cell.value.borrow();
+            match value {
+                CellValue::Fixed(_) => {non_empty_cells.push(Rc::clone(&cell))}
+                CellValue::Unknown(_) => {}
+            }
+        }
     }
+    // Need to randomly reorder non_empty_cells
+    non_empty_cells.shuffle(&mut rng);
+
+    for (_index, cell) in non_empty_cells.iter().enumerate() {
+        let grid_clone = grid.clone();
+        let cell_clone = grid_clone.get(cell.x, cell.y).unwrap();
+        let cell_clone = &*cell_clone;
+
+        cell_clone.delete_value();
+
+        let status = solve_grid(&mut grid);
+        match status {
+            GenerateStatus::UniqueSolution => { // great; that cell value was not needed
+                num_hints = num_hints - 1;
+                grid = grid_clone;
+
+            }
+            GenerateStatus::Unfinished => {panic!("solve_grid should never return UNFINISHED")}
+            GenerateStatus::NoSolution => {panic!("Removing constraints should not have set the # of solutions to zero")}
+            GenerateStatus::NotUniqueSolution => {continue;}
+        };
+    }
+
+    return (grid, num_hints);
 
 }
 
