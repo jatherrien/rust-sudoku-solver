@@ -6,8 +6,8 @@ pub static mut DEBUG: bool = false;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CellValue {
-    FIXED(u8),
-    UNKNOWN(Vec<u8>)
+    Fixed(u8),
+    Unknown(Vec<u8>)
 }
 
 pub struct Cell {
@@ -27,7 +27,7 @@ impl Cell {
             }
         }
 
-        self.value.replace(CellValue::FIXED(digit));
+        self.value.replace(CellValue::Fixed(digit));
 
         // We fully expect our row, column, and section to still be here even though the Rust compiler won't guarantee it
         // Panic-ing if they're not present is perfectly reasonable
@@ -53,11 +53,11 @@ impl Cell {
 
     pub fn set_value(&self, value: CellValue){
         match value {
-            CellValue::FIXED(digit) => {
+            CellValue::Fixed(digit) => {
                 self.set(digit);
                 return;
             },
-            CellValue::UNKNOWN(_) => {
+            CellValue::Unknown(_) => {
                 self.set_value_exact(value);
             } // continue on
         }
@@ -77,8 +77,8 @@ impl Cell {
     pub fn get_value_possibilities(&self) -> Option<Vec<u8>> {
         let value = &*self.value.borrow();
         match value {
-            CellValue::FIXED(_) => None,
-            CellValue::UNKNOWN(x) => Some(x.clone())
+            CellValue::Fixed(_) => None,
+            CellValue::Unknown(x) => Some(x.clone())
         }
     }
 
@@ -109,7 +109,7 @@ impl Cell {
                 let value = &*cell.value.borrow();
 
                 match value {
-                    CellValue::UNKNOWN(possibilities) => {
+                    CellValue::Unknown(possibilities) => {
                         let mut new_possibilities = possibilities.clone();
 
                         match new_possibilities.binary_search(&digit) {
@@ -117,7 +117,7 @@ impl Cell {
                             _ => {}
                         };
 
-                        Some(CellValue::UNKNOWN(new_possibilities))
+                        Some(CellValue::Unknown(new_possibilities))
                         /*
                         if new_possibilities.len() == 1 {
                             let remaining_digit = new_possibilities.first().unwrap().clone();
@@ -128,7 +128,7 @@ impl Cell {
                             Some(CellValue::UNKNOWN(new_possibilities))
                         }*/
                     },
-                    CellValue::FIXED(_) => {None}
+                    CellValue::Fixed(_) => {None}
                 }
             };
 
@@ -152,9 +152,9 @@ pub struct Line {
 
 #[derive(Debug)]
 pub enum LineType {
-    ROW,
-    COLUMN,
-    SECTION
+    Row,
+    Column,
+    Section
 }
 
 impl Line {
@@ -199,9 +199,9 @@ impl Grid {
         let mut sections: Vec<MultiMut<Line>> = Vec::new();
 
         for i in 0..9 {
-            rows.push(Rc::new(RefCell::new(Line::new(i, LineType::ROW))));
-            columns.push(Rc::new(RefCell::new(Line::new(i, LineType::COLUMN))));
-            sections.push(Rc::new(RefCell::new(Line::new(i, LineType::SECTION))));
+            rows.push(Rc::new(RefCell::new(Line::new(i, LineType::Row))));
+            columns.push(Rc::new(RefCell::new(Line::new(i, LineType::Column))));
+            sections.push(Rc::new(RefCell::new(Line::new(i, LineType::Section))));
         }
 
         for row_index in 0..9 {
@@ -229,7 +229,7 @@ impl Grid {
                 let cell = Cell {
                     x: row_index,
                     y: column_index,
-                    value: RefCell::new(CellValue::UNKNOWN(vec![1, 2, 3, 4, 5, 6, 7, 8, 9])),
+                    value: RefCell::new(CellValue::Unknown(vec![1, 2, 3, 4, 5, 6, 7, 8, 9])),
                     row: row_weak,
                     column: column_weak,
                     section: section_weak
@@ -325,12 +325,12 @@ impl std::fmt::Display for Grid {
 
 
                 match value {
-                    CellValue::FIXED(x) => {
+                    CellValue::Fixed(x) => {
                         row1.push_str("   ");
                         row2.push(' '); row2.push_str(&x.to_string()); row2.push(' ');
                         row3.push_str("   ");
                     },
-                    CellValue::UNKNOWN(x) => {
+                    CellValue::Unknown(x) => {
                         Grid::process_unknown(&x, 1, &mut row1);
                         Grid::process_unknown(&x, 2, &mut row1);
                         Grid::process_unknown(&x, 3, &mut row1);
