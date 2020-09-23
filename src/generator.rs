@@ -7,6 +7,7 @@ use rand_chacha::ChaCha8Rng;
 pub static mut DEBUG : bool = false;
 
 // Extension of SolveStatus
+#[derive(Debug, Eq, PartialEq)]
 pub enum GenerateStatus {
     UniqueSolution,
     Unfinished,
@@ -179,7 +180,7 @@ pub fn generate_grid(rng: &mut ChaCha8Rng) -> (Grid, i32) {
                 return (grid, num_hints);
             }
             GenerateStatus::Unfinished => {panic!("solve_grid should never return UNFINISHED")}
-            GenerateStatus::NoSolution => {continue;}
+            GenerateStatus::NoSolution => {continue;} // unlucky; try again
             GenerateStatus::NotUniqueSolution => {break grid;}
         };
     };
@@ -246,13 +247,13 @@ pub fn generate_grid(rng: &mut ChaCha8Rng) -> (Grid, i32) {
     non_empty_cells.shuffle(rng);
 
     for (_index, cell) in non_empty_cells.iter().enumerate() {
-        let grid_clone = grid.clone();
+        let mut grid_clone = grid.clone();
         let cell_clone = grid_clone.get(cell.x, cell.y).unwrap();
         let cell_clone = &*cell_clone;
 
         cell_clone.delete_value();
 
-        let status = solve_grid(&mut grid);
+        let status = solve_grid(&mut grid_clone);
         match status {
             GenerateStatus::UniqueSolution => { // great; that cell value was not needed
                 num_hints = num_hints - 1;
@@ -261,7 +262,7 @@ pub fn generate_grid(rng: &mut ChaCha8Rng) -> (Grid, i32) {
             }
             GenerateStatus::Unfinished => {panic!("solve_grid should never return UNFINISHED")}
             GenerateStatus::NoSolution => {panic!("Removing constraints should not have set the # of solutions to zero")}
-            GenerateStatus::NotUniqueSolution => {continue;}
+            GenerateStatus::NotUniqueSolution => {continue;} // We can't remove this cell; continue onto the next one (note that grid hasn't been modified)
         };
     }
 
@@ -325,4 +326,55 @@ fn solve_grid_guess(grid: &Grid) -> GenerateStatus{
         GenerateStatus::NoSolution => {panic!("current_status should not be NO_SOLUTION at this point")}
     }
 
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::grid::*;
+    use crate::generator::{solve_grid, GenerateStatus};
+
+    #[test]
+    fn test_unique_detection() {
+        // A puzzle was generated that didn't actually have a unique solution; this is to make sure that the
+        // modified solving code can actually detect this case
+        let grid = Grid::new();
+
+        grid.get(0, 0).unwrap().set(9);
+        grid.get(0, 7).unwrap().set(4);
+
+        grid.get(1, 3).unwrap().set(5);
+        grid.get(1, 6).unwrap().set(8);
+
+        grid.get(2, 0).unwrap().set(2);
+        grid.get(2, 1).unwrap().set(4);
+        grid.get(2, 4).unwrap().set(7);
+
+        grid.get(3, 2).unwrap().set(8);
+        grid.get(3, 4).unwrap().set(2);
+        grid.get(3, 6).unwrap().set(9);
+
+        grid.get(4, 3).unwrap().set(6);
+        grid.get(4, 7).unwrap().set(7);
+
+        grid.get(5, 5).unwrap().set(5);
+        grid.get(5, 8).unwrap().set(1);
+
+        grid.get(6, 0).unwrap().set(3);
+        grid.get(6, 4).unwrap().set(8);
+        grid.get(6, 6).unwrap().set(4);
+        grid.get(6, 8).unwrap().set(7);
+
+        grid.get(7, 0).unwrap().set(7);
+        grid.get(7, 4).unwrap().set(1);
+        grid.get(7, 5).unwrap().set(9);
+        grid.get(7, 6).unwrap().set(2);
+
+        grid.get(8, 2).unwrap().set(6);
+
+        let status = solve_grid(&grid);
+
+        assert_eq!(status, GenerateStatus::NotUniqueSolution);
+
+    }
 }
