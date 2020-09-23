@@ -152,8 +152,7 @@ impl Line {
     }
 }
 
-pub fn generate_grid(seed: u64) -> (Grid, i32) {
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+pub fn generate_grid(rng: &mut ChaCha8Rng) -> (Grid, i32) {
 
     let mut num_hints;
     let mut grid : Grid = loop {
@@ -167,7 +166,7 @@ pub fn generate_grid(seed: u64) -> (Grid, i32) {
 
         for digit in 1..10 {
             if digit != digit_excluded {
-                let cell = grid.get_random_empty_cell(&mut rng);
+                let cell = grid.get_random_empty_cell(rng);
                 cell.unwrap().set(digit);
                 num_hints = num_hints + 1;
             }
@@ -189,12 +188,12 @@ pub fn generate_grid(seed: u64) -> (Grid, i32) {
     grid =
     'outer: loop {
         num_hints = num_hints + 1;
-        let cell = grid.get_random_empty_cell(&mut rng).unwrap(); // We unwrap because if somehow we're filled each cell without finding a solution, that's reason for a panic
+        let cell = grid.get_random_empty_cell(rng).unwrap(); // We unwrap because if somehow we're filled each cell without finding a solution, that's reason for a panic
         let cell = &*cell;
         let mut cell_possibilities = cell.get_value_possibilities().expect("An empty cell has no possibilities");
 
         // Let's scramble the order
-        cell_possibilities.shuffle(&mut rng);
+        cell_possibilities.shuffle(rng);
 
         for (_index, digit) in cell_possibilities.iter().enumerate() {
 
@@ -244,7 +243,7 @@ pub fn generate_grid(seed: u64) -> (Grid, i32) {
         }
     }
     // Need to randomly reorder non_empty_cells
-    non_empty_cells.shuffle(&mut rng);
+    non_empty_cells.shuffle(rng);
 
     for (_index, cell) in non_empty_cells.iter().enumerate() {
         let grid_clone = grid.clone();
