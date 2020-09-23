@@ -71,15 +71,21 @@ fn main() {
 
     match filename {
         Some(filename) => {
-            save_grid(&grid, &filename).unwrap();
-            println!("Grid saved to {}", filename);
+            // check if we save to a csv or a pdf
+            if filename.ends_with(".pdf") {
+                sudoku_solver::pdf::draw_grid(&grid, &filename).unwrap();
+                println!("Grid saved as pdf to {}", filename);
+            } else{
+                save_grid_csv(&grid, &filename).unwrap();
+                println!("Grid saved as CSV to {}", filename);
+            }
         },
         None => {}
     }
 
 }
 
-fn save_grid(grid: &Grid, filename: &str) -> Result<(), Box<dyn Error>>{
+fn save_grid_csv(grid: &Grid, filename: &str) -> Result<(), Box<dyn Error>>{
     // Not using the csv crate for writing because it's being difficult and won't accept raw integers
     let mut file = std::fs::File::create(filename)?;
 
