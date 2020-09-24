@@ -3,6 +3,59 @@ use rand::prelude::*;
 use sudoku_solver::grid::{Grid, CellValue};
 use std::error::Error;
 use std::io::Write;
+use sudoku_solver::solver::SolveController;
+use std::str::FromStr;
+
+#[derive(Clone)] // Needed for argparse
+enum Difficulty {
+    Hard,
+    Medium,
+    Easy
+}
+
+impl Difficulty {
+    fn map_to_solve_controller(&self) -> SolveController {
+        let mut controller = SolveController{
+            determine_uniqueness: true,
+            search_singles: true,
+            search_hidden_singles: true,
+            find_possibility_groups: true,
+            search_useful_constraint: true,
+            make_guesses: true
+        };
+
+        match self {
+            Difficulty::Hard => {} // Do nothing, already hard
+            Difficulty::Medium => {
+                controller.make_guesses = false;
+            },
+            Difficulty::Easy => {
+                controller.make_guesses = false;
+                controller.search_useful_constraint = false;
+                controller.find_possibility_groups = false;
+            }
+        }
+
+        controller
+    }
+}
+
+impl FromStr for Difficulty { // Needed for argparse
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+
+        if s.eq_ignore_ascii_case("EASY"){
+            return Ok(Difficulty::Easy);
+        } else if s.eq_ignore_ascii_case("MEDIUM"){
+            return Ok(Difficulty::Medium);
+        } else if s.eq_ignore_ascii_case("HARD"){
+            return Ok(Difficulty::Hard);
+        }
+
+        return Err(format!("{} is not a valid difficulty", s));
+    }
+}
 
 fn main() {
 
@@ -13,6 +66,7 @@ fn main() {
     let mut max_hints = 81;
     let mut max_attempts = 100;
     let mut filename : Option<String> = None;
+    let mut difficulty = Difficulty::Hard;
 
     { // this block limits scope of borrows by ap.refer() method
         let mut ap = argparse::ArgumentParser::new();
@@ -21,7 +75,7 @@ fn main() {
             .add_option(&["--debug"], argparse::StoreTrue, "Run in debug mode");
 
         ap.refer(&mut seed)
-            .add_option(&["--seed"], argparse::Store, "Provide seed for puzzle generation");
+            .add_option(&["-s", "--seed"], argparse::Store, "Provide seed for puzzle generation");
 
         ap.refer(&mut max_hints)
             .add_option(&["--hints"], argparse::Store, "Only return a puzzle with less than or equal to this number of hints");
@@ -31,6 +85,9 @@ fn main() {
 
         ap.refer(&mut filename)
             .add_argument("filename", argparse::StoreOption, "Optional filename to store puzzle in as a CSV");
+
+        ap.refer(&mut difficulty)
+            .add_option(&["-d", "--difficulty"], argparse::Store, "Max difficulty setting; values are EASY, MEDIUM, or HARD");
 
         ap.parse_args_or_exit();
     }
@@ -46,6 +103,10 @@ fn main() {
     if debug {
         println!("Using seed {}", seed);
     }
+
+    let solve_controller = difficulty.map_to_solve_controller();
+
+
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
 
     let mut num_attempts = 0;
@@ -56,7 +117,7 @@ fn main() {
             return;
         }
 
-        let (grid, num_hints) = sudoku_solver::generator::generate_grid(&mut rng);
+        let (grid, num_hints) = sudoku_solver::generator::generate_grid(&mut rng, &solve_controller);
         num_attempts = num_attempts + 1;
 
         if num_hints <= max_hints {
