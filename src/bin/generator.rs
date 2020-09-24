@@ -3,7 +3,7 @@ use rand::prelude::*;
 use sudoku_solver::grid::{Grid, CellValue};
 use std::error::Error;
 use std::io::Write;
-use sudoku_solver::solver::SolveController;
+use sudoku_solver::solver::{SolveController, SolveStatistics};
 use std::str::FromStr;
 
 #[derive(Clone)] // Needed for argparse
@@ -37,6 +37,18 @@ impl Difficulty {
         }
 
         controller
+    }
+
+    fn meets_minimum_requirements(&self, solve_statistics: &SolveStatistics) -> bool {
+        match self {
+            Difficulty::Hard => {
+                (solve_statistics.guesses > 0) && (solve_statistics.possibility_groups > 10) && (solve_statistics.useful_constraints > 10)
+            }
+            Difficulty::Medium => {
+                (solve_statistics.possibility_groups > 10) && (solve_statistics.useful_constraints > 10)
+            }
+            Difficulty::Easy => {true} // easy has no minimum
+        }
     }
 }
 
@@ -92,6 +104,7 @@ fn main() {
         ap.parse_args_or_exit();
     }
 
+    /*
     if debug {
         unsafe {
             sudoku_solver::grid::DEBUG = true;
@@ -99,6 +112,8 @@ fn main() {
             sudoku_solver::generator::DEBUG = true;
         }
     }
+    */
+
 
     if debug {
         println!("Using seed {}", seed);
@@ -111,24 +126,33 @@ fn main() {
 
     let mut num_attempts = 0;
 
-    let grid = loop {
+    let (grid, solve_statistics) = loop {
         if num_attempts >= max_attempts{
             println!("Unable to find a puzzle with only {} hints in {} attempts", max_hints, max_attempts);
             return;
         }
 
-        let (grid, num_hints) = sudoku_solver::generator::generate_grid(&mut rng, &solve_controller);
+        let (grid, num_hints, solve_statistics) = sudoku_solver::generator::generate_grid(&mut rng, &solve_controller);
         num_attempts = num_attempts + 1;
 
-        if num_hints <= max_hints {
+        if difficulty.meets_minimum_requirements(&solve_statistics) && num_hints <= max_hints {
             println!("{}", grid);
             println!("Puzzle has {} hints", num_hints);
             if num_attempts > 1 {
                 println!("It took {} attempts to find this puzzle.", num_attempts);
             }
-            break grid;
+            break (grid, solve_statistics);
         }
     };
+
+    if debug {
+        println!("Solving this puzzle involves roughly:");
+        println!("\t{} SINGLE actions", solve_statistics.singles);
+        println!("\t{} HIDDEN_SINGLE actions", solve_statistics.hidden_singles);
+        println!("\t{} USEFUL_CONSTRAINT actions", solve_statistics.useful_constraints);
+        println!("\t{} POSSIBILITY_GROUP actions", solve_statistics.possibility_groups);
+        println!("\t{} GUESS actions", solve_statistics.guesses);
+    }
 
     match filename {
         Some(filename) => {

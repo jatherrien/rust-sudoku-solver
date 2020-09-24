@@ -1,5 +1,5 @@
 use crate::grid::{Cell, Grid, CellValue, Line};
-use crate::solver::{SolveStatus, SolveController, Uniqueness, evaluate_grid_with_solve_controller};
+use crate::solver::{SolveStatus, SolveController, Uniqueness, evaluate_grid_with_solve_controller, SolveStatistics};
 use std::rc::Rc;
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
@@ -108,7 +108,7 @@ impl Line {
     }
 }
 
-pub fn generate_grid(rng: &mut ChaCha8Rng, solve_controller: &SolveController) -> (Grid, i32) {
+pub fn generate_grid(rng: &mut ChaCha8Rng, solve_controller: &SolveController) -> (Grid, i32, SolveStatistics) {
 
     let mut grid = generate_completed_grid(rng);
     let mut num_hints = 81;
@@ -124,6 +124,8 @@ pub fn generate_grid(rng: &mut ChaCha8Rng, solve_controller: &SolveController) -
     // Need to randomly reorder non_empty_cells
     non_empty_cells.shuffle(rng);
 
+    let mut statistics_option = None;
+
     for (_index, cell) in non_empty_cells.iter().enumerate() {
         let mut grid_clone = grid.clone();
         let cell_clone = grid_clone.get(cell.x, cell.y).unwrap();
@@ -132,7 +134,7 @@ pub fn generate_grid(rng: &mut ChaCha8Rng, solve_controller: &SolveController) -
         cell_clone.delete_value();
 
 
-        let status = evaluate_grid_with_solve_controller(&mut grid_clone, solve_controller);
+        let (status, statistics) = evaluate_grid_with_solve_controller(&mut grid_clone, solve_controller);
         match status {
             SolveStatus::Complete(uniqueness) => {
                 let uniqueness = uniqueness.unwrap();
@@ -147,9 +149,10 @@ pub fn generate_grid(rng: &mut ChaCha8Rng, solve_controller: &SolveController) -
             SolveStatus::Unfinished => panic!("evaluate_grid_with_solve_controller should never return UNFINISHED"),
             SolveStatus::Invalid => panic!("Removing constraints should not have set the # of solutions to zero")
         }
+        statistics_option = Some(statistics);
     }
 
-    return (grid, num_hints);
+    return (grid, num_hints, statistics_option.unwrap());
 
 }
 
@@ -179,7 +182,7 @@ fn generate_completed_grid(rng: &mut ChaCha8Rng) -> Grid {
             }
         }
 
-        let status = evaluate_grid_with_solve_controller(&grid, &solve_controller);
+        let (status, _statistics) = evaluate_grid_with_solve_controller(&grid, &solve_controller);
         match status {
             SolveStatus::Complete(uniqueness) => {
                 let uniqueness = uniqueness.unwrap();
@@ -213,7 +216,7 @@ fn generate_completed_grid(rng: &mut ChaCha8Rng) -> Grid {
 
                 cell.set(*digit);
 
-                let status = evaluate_grid_with_solve_controller(&mut grid_clone, &solve_controller);
+                let (status, _statistics) = evaluate_grid_with_solve_controller(&mut grid_clone, &solve_controller);
                 match status {
                     SolveStatus::Complete(uniqueness) => {
                         let uniqueness = uniqueness.unwrap();
@@ -247,7 +250,7 @@ fn generate_completed_grid(rng: &mut ChaCha8Rng) -> Grid {
 #[cfg(test)]
 mod tests {
     use crate::grid::*;
-    use crate::solver::{solve_grid_with_solve_controller, SolveController, Uniqueness, SolveStatus};
+    use crate::solver::{solve_grid_with_solve_controller, SolveController, Uniqueness, SolveStatus, SolveStatistics};
     use crate::generator::generate_grid;
     use rand_chacha::ChaCha8Rng;
     use rand_chacha::rand_core::SeedableRng;
@@ -297,7 +300,7 @@ mod tests {
             find_possibility_groups: true,
             search_useful_constraint: true,
             make_guesses: true
-        });
+        }, &mut SolveStatistics::new());
 
         assert_eq!(status, SolveStatus::Complete(Some(Uniqueness::NotUnique)));
 
@@ -316,7 +319,7 @@ mod tests {
         };
 
         // Note that the puzzle itself doesn't matter
-        let (grid, _num_hints) = generate_grid(&mut ChaCha8Rng::seed_from_u64(123), &solve_controller);
+        let (grid, _num_hints, _statistics) = generate_grid(&mut ChaCha8Rng::seed_from_u64(123), &solve_controller);
 
         let mut observed_empty_cell = false;
         'outer : for x in 0..9 {
