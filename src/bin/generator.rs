@@ -8,6 +8,7 @@ use std::str::FromStr;
 
 #[derive(Clone)] // Needed for argparse
 enum Difficulty {
+    Challenge,
     Hard,
     Medium,
     Easy
@@ -25,7 +26,10 @@ impl Difficulty {
         };
 
         match self {
-            Difficulty::Hard => {} // Do nothing, already hard
+            Difficulty::Challenge => {}, // Do nothing, already hard
+            Difficulty::Hard => {
+                controller.make_guesses = false;
+            }
             Difficulty::Medium => {
                 controller.make_guesses = false;
             },
@@ -41,8 +45,11 @@ impl Difficulty {
 
     fn meets_minimum_requirements(&self, solve_statistics: &SolveStatistics) -> bool {
         match self {
+            Difficulty::Challenge => {
+                (solve_statistics.guesses > 0) && (solve_statistics.possibility_groups > 20) && (solve_statistics.useful_constraints > 20)
+            }
             Difficulty::Hard => {
-                (solve_statistics.guesses > 0) && (solve_statistics.possibility_groups > 10) && (solve_statistics.useful_constraints > 10)
+                (solve_statistics.possibility_groups > 20) && (solve_statistics.useful_constraints > 20)
             }
             Difficulty::Medium => {
                 (solve_statistics.possibility_groups > 10) && (solve_statistics.useful_constraints > 10)
@@ -63,6 +70,8 @@ impl FromStr for Difficulty { // Needed for argparse
             return Ok(Difficulty::Medium);
         } else if s.eq_ignore_ascii_case("HARD"){
             return Ok(Difficulty::Hard);
+        } else if s.eq_ignore_ascii_case("CHALLENGE"){
+            return Ok(Difficulty::Challenge);
         }
 
         return Err(format!("{} is not a valid difficulty", s));
@@ -78,7 +87,7 @@ fn main() {
     let mut max_hints = 81;
     let mut max_attempts = 100;
     let mut filename : Option<String> = None;
-    let mut difficulty = Difficulty::Hard;
+    let mut difficulty = Difficulty::Challenge;
 
     { // this block limits scope of borrows by ap.refer() method
         let mut ap = argparse::ArgumentParser::new();
@@ -99,7 +108,7 @@ fn main() {
             .add_argument("filename", argparse::StoreOption, "Optional filename to store puzzle in as a CSV");
 
         ap.refer(&mut difficulty)
-            .add_option(&["-d", "--difficulty"], argparse::Store, "Max difficulty setting; values are EASY, MEDIUM, or HARD");
+            .add_option(&["-d", "--difficulty"], argparse::Store, "Max difficulty setting; values are EASY, MEDIUM, HARD, or CHALLENGE");
 
         ap.parse_args_or_exit();
     }
