@@ -1,4 +1,4 @@
-use crate::grid::{Cell, Grid, CellValue, Line};
+use crate::grid::{Cell, Grid, CellValue, Section};
 use crate::solver::{SolveStatus, SolveController, Uniqueness, evaluate_grid_with_solve_controller, SolveStatistics};
 use std::rc::Rc;
 use rand::prelude::*;
@@ -61,7 +61,7 @@ impl Cell {
     fn calculate_possibilities(&self) -> Vec<u8> {
         // Need to calculate possibilities for this cell
         let mut possibilities = vec![1, 2, 3, 4, 5, 6, 7, 8, 9];
-        fn eliminate_possibilities(possibilities: &mut Vec<u8>, line: &Line, cell: &Cell){
+        fn eliminate_possibilities(possibilities: &mut Vec<u8>, line: &Section, cell: &Cell){
             for (_index, other) in line.vec.iter().enumerate(){
                 if other.x != cell.x || other.y != cell.y {
                     let value = &*other.value.borrow();
@@ -89,7 +89,7 @@ impl Cell {
     }
 }
 
-impl Line {
+impl Section {
     fn recalculate_and_set_possibilities(&self) {
         for (_index, cell) in self.vec.iter().enumerate() {
             let cell = &**cell;
