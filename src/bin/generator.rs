@@ -1,12 +1,24 @@
-use rand_chacha::ChaCha8Rng;
 use rand::prelude::*;
 use sudoku_solver::grid::{Grid, CellValue};
 use std::error::Error;
 use std::io::Write;
 use sudoku_solver::solver::{SolveController, SolveStatistics};
 use std::str::FromStr;
+use std::sync::{mpsc};
+use std::process::exit;
+use std::thread;
 
-#[derive(Clone)] // Needed for argparse
+/*
+We have to be very careful here because Grid contains lots of Rcs and RefCells which could enable mutability
+across multiple threads (with Rcs specifically even just counting the number of active references to the object
+involves mutability of the Rc itself). In my specific case with the generator here I know that all those Rcs
+and RefCells are fully encapsulated in the one Grid object I'm Sending and will never be accessed again from the thread
+that sent them after it's been Sent, so it's safe in this narrowly specific context.
+*/
+struct SafeGridWrapper(Grid);
+unsafe impl Send for SafeGridWrapper {}
+
+#[derive(Clone, Copy)] // Needed for argparse
 enum Difficulty {
     Challenge,
     Hard,
@@ -81,13 +93,11 @@ impl FromStr for Difficulty { // Needed for argparse
 fn main() {
 
     let mut debug = false;
-    // Starting default seed will just be based on time
-    let mut seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time went backwards").as_secs();
-
     let mut max_hints = 81;
     let mut max_attempts = 100;
     let mut filename : Option<String> = None;
     let mut difficulty = Difficulty::Challenge;
+    let mut threads = 1;
 
     { // this block limits scope of borrows by ap.refer() method
         let mut ap = argparse::ArgumentParser::new();
@@ -95,14 +105,11 @@ fn main() {
         ap.refer(&mut debug)
             .add_option(&["--debug"], argparse::StoreTrue, "Run in debug mode");
 
-        ap.refer(&mut seed)
-            .add_option(&["-s", "--seed"], argparse::Store, "Provide seed for puzzle generation");
-
         ap.refer(&mut max_hints)
             .add_option(&["--hints"], argparse::Store, "Only return a puzzle with less than or equal to this number of hints");
 
         ap.refer(&mut max_attempts)
-            .add_option(&["--attempts"], argparse::Store, "Number of attempts that will be tried to generate such a puzzle; default is 100");
+            .add_option(&["--attempts"], argparse::Store, "Number of puzzles each thread will generate to find an appropriate puzzle; default is 100");
 
         ap.refer(&mut filename)
             .add_argument("filename", argparse::StoreOption, "Optional filename to store puzzle in as a CSV");
@@ -110,49 +117,72 @@ fn main() {
         ap.refer(&mut difficulty)
             .add_option(&["-d", "--difficulty"], argparse::Store, "Max difficulty setting; values are EASY, MEDIUM, HARD, or CHALLENGE");
 
+        ap.refer(&mut threads)
+            .add_option(&["--threads"], argparse::Store, "Number of threads to use when generating possible puzzles");
+
         ap.parse_args_or_exit();
-    }
-
-    /*
-    if debug {
-        unsafe {
-            sudoku_solver::grid::DEBUG = true;
-            sudoku_solver::solver::DEBUG = true;
-            sudoku_solver::generator::DEBUG = true;
-        }
-    }
-    */
-
-
-    if debug {
-        println!("Using seed {}", seed);
     }
 
     let solve_controller = difficulty.map_to_solve_controller();
 
+    let (grid, solve_statistics, num_hints) =
+    if threads < 1 {
+        eprintln!("--threads must be at least 1");
+        exit(1);
+    } else if threads == 1 {
+        let mut rng = SmallRng::from_entropy();
+        let result = get_puzzle_matching_conditions(&mut rng, &difficulty, &solve_controller, max_attempts, max_hints);
+        match result {
+            Some(x) => x,
+            None => {
+                eprintln!("Unable to find an appropriate puzzle in the required amount of attempts");
+                exit(1);
+            }
+        }
+    } else {
+        let mut thread_rng = thread_rng();
+        let (transmitter, receiver) = mpsc::channel();
 
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        for _i in 0..threads {
+            let cloned_transmitter = mpsc::Sender::clone(&transmitter);
+            let mut rng = SmallRng::from_rng(&mut thread_rng).unwrap();
 
-    let mut num_attempts = 0;
+            thread::spawn(move || {
+                if debug {
+                    println!("Thread spawned");
+                }
 
-    let (grid, solve_statistics) = loop {
-        if num_attempts >= max_attempts{
-            println!("Unable to find a puzzle with only {} hints in {} attempts", max_hints, max_attempts);
-            return;
+                let result = get_puzzle_matching_conditions(&mut rng, &difficulty, &solve_controller, max_attempts, max_hints);
+                match result {
+                    Some((grid, solve_statistics, num_hints)) => {
+                        cloned_transmitter.send((SafeGridWrapper(grid), solve_statistics, num_hints)).unwrap();
+                    },
+                    None => {}
+                };
+
+                if debug {
+                    println!("Thread terminated");
+                }
+            });
         }
 
-        let (grid, num_hints, solve_statistics) = sudoku_solver::generator::generate_grid(&mut rng, &solve_controller);
-        num_attempts = num_attempts + 1;
+        // TODO - fix bug where recv doesn't return if no Grid is found by any threads!
+        match receiver.recv() {
+            Ok((grid, solve_statistics, num_hints)) => (grid.0, solve_statistics, num_hints),
+            Err(e) => {
+                eprintln!("Unable to find an appropriate puzzle in the required amount of attempts");
+                if debug {
+                    eprintln!("Error returned: {:?}", e);
+                }
 
-        if difficulty.meets_minimum_requirements(&solve_statistics) && num_hints <= max_hints {
-            println!("{}", grid);
-            println!("Puzzle has {} hints", num_hints);
-            if num_attempts > 1 {
-                println!("It took {} attempts to find this puzzle.", num_attempts);
+                exit(1);
             }
-            break (grid, solve_statistics);
         }
     };
+
+
+    println!("{}", grid);
+    println!("Puzzle has {} hints", num_hints);
 
     if debug {
         println!("Solving this puzzle involves roughly:");
@@ -177,6 +207,23 @@ fn main() {
         None => {}
     }
 
+}
+
+fn get_puzzle_matching_conditions(rng: &mut SmallRng, difficulty: &Difficulty, solve_controller: &SolveController, max_attempts: i32, max_hints: i32) -> Option<(Grid, SolveStatistics, i32)>{
+    let mut num_attempts = 0;
+
+    loop {
+        if num_attempts >= max_attempts {
+            return None;
+        }
+
+        let (grid, num_hints, solve_statistics) = sudoku_solver::generator::generate_grid(rng, &solve_controller);
+        num_attempts += 1;
+
+        if difficulty.meets_minimum_requirements(&solve_statistics) && num_hints <= max_hints {
+            return Some((grid, solve_statistics, num_hints));
+        }
+    }
 }
 
 fn save_grid_csv(grid: &Grid, filename: &str) -> Result<(), Box<dyn Error>>{

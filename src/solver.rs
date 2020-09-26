@@ -54,6 +54,7 @@ impl SolveStatus {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct SolveController {
     pub determine_uniqueness: bool,
     pub search_singles: bool,

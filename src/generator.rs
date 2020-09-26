@@ -2,12 +2,11 @@ use crate::grid::{Cell, Grid, CellValue, Line};
 use crate::solver::{SolveStatus, SolveController, Uniqueness, evaluate_grid_with_solve_controller, SolveStatistics};
 use std::rc::Rc;
 use rand::prelude::*;
-use rand_chacha::ChaCha8Rng;
 
 pub static mut DEBUG : bool = false;
 
 impl Grid {
-    fn get_random_empty_cell(&self, rng : &mut ChaCha8Rng) -> Result<Rc<Cell>, &str> {
+    fn get_random_empty_cell(&self, rng : &mut SmallRng) -> Result<Rc<Cell>, &str> {
         // Idea - put all empty cells into a vector and choose one at random
         // If vector is empty we return an error
 
@@ -108,7 +107,7 @@ impl Line {
     }
 }
 
-pub fn generate_grid(rng: &mut ChaCha8Rng, solve_controller: &SolveController) -> (Grid, i32, SolveStatistics) {
+pub fn generate_grid(rng: &mut SmallRng, solve_controller: &SolveController) -> (Grid, i32, SolveStatistics) {
 
     let mut grid = generate_completed_grid(rng);
     let mut num_hints = 81;
@@ -157,7 +156,7 @@ pub fn generate_grid(rng: &mut ChaCha8Rng, solve_controller: &SolveController) -
 }
 
 // We generate a completed grid with no mind for difficulty; afterward generate_puzzle will take out as many fields as it can with regards to the difficulty
-fn generate_completed_grid(rng: &mut ChaCha8Rng) -> Grid {
+fn generate_completed_grid(rng: &mut SmallRng) -> Grid {
     let solve_controller = SolveController{
         determine_uniqueness: true,
         search_singles: true,
@@ -252,7 +251,7 @@ mod tests {
     use crate::grid::*;
     use crate::solver::{solve_grid_with_solve_controller, SolveController, Uniqueness, SolveStatus, SolveStatistics};
     use crate::generator::generate_grid;
-    use rand_chacha::ChaCha8Rng;
+    use rand_chacha::SmallRng;
     use rand_chacha::rand_core::SeedableRng;
 
     #[test]
@@ -319,7 +318,7 @@ mod tests {
         };
 
         // Note that the puzzle itself doesn't matter
-        let (grid, _num_hints, _statistics) = generate_grid(&mut ChaCha8Rng::seed_from_u64(123), &solve_controller);
+        let (grid, _num_hints, _statistics) = generate_grid(&mut SmallRng::seed_from_u64(123), &solve_controller);
 
         let mut observed_empty_cell = false;
         'outer : for x in 0..9 {
