@@ -10,16 +10,38 @@ pub enum CellValue {
     Unknown(Vec<u8>)
 }
 
+/// A representation of a single cell in a Sudoku grid. Don't make this directly; make a Grid.
 pub struct Cell {
     pub x: usize,
     pub y: usize,
     pub value: RefCell<CellValue>,
-    pub row: Weak<RefCell<Line>>,
-    pub column: Weak<RefCell<Line>>,
-    pub section: Weak<RefCell<Line>>,
+    pub row: Weak<RefCell<Section>>,
+    pub column: Weak<RefCell<Section>>,
+    pub section: Weak<RefCell<Section>>,
 }
 
 impl Cell {
+    /// Set the `Cell`'s value to be a fixed digit. This method also removes the digit from any
+    /// affected cells in the same row, column, or square.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sudoku_solver::grid::{Grid, CellValue};
+    /// let grid = Grid::new();
+    ///
+    /// let cell1 = grid.get(0,0).unwrap();
+    /// let cell2 = grid.get(0,1).unwrap();
+    ///
+    /// assert_eq!(cell1.get_value_copy(), CellValue::Unknown(vec![1,2,3,4,5,6,7,8,9]));
+    /// assert_eq!(cell2.get_value_copy(), CellValue::Unknown(vec![1,2,3,4,5,6,7,8,9]));
+    ///
+    /// cell1.set(1);
+    ///
+    /// assert_eq!(cell1.get_value_copy(), CellValue::Fixed(1));
+    /// assert_eq!(cell2.get_value_copy(), CellValue::Unknown(vec![2,3,4,5,6,7,8,9]));
+    ///
+    /// ```
     pub fn set(&self, digit: u8){
         unsafe {
             if DEBUG {
@@ -46,11 +68,14 @@ impl Cell {
         Cell::process_possibilities(section, digit);
     }
 
+    /// Get a copy of the `CellValue`
     pub fn get_value_copy(&self) -> CellValue {
         let value = &*self.value.borrow();
         return value.clone();
     }
 
+    /// Set the cell value with a provided `CellValue`; if `value` is Fixed then the related cell's
+    /// possibilities are adjusted like in `set`.
     pub fn set_value(&self, value: CellValue){
         match value {
             CellValue::Fixed(digit) => {
@@ -63,6 +88,26 @@ impl Cell {
         }
     }
 
+    /// Set the `Cell`'s value to be a value **without** adjusting any of the nearby cells.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sudoku_solver::grid::{Grid, CellValue};
+    /// let grid = Grid::new();
+    ///
+    /// let cell1 = grid.get(0,0).unwrap();
+    /// let cell2 = grid.get(0,1).unwrap();
+    ///
+    /// assert_eq!(cell1.get_value_copy(), CellValue::Unknown(vec![1,2,3,4,5,6,7,8,9]));
+    /// assert_eq!(cell2.get_value_copy(), CellValue::Unknown(vec![1,2,3,4,5,6,7,8,9]));
+    ///
+    /// cell1.set_value_exact(CellValue::Fixed(1));
+    ///
+    /// assert_eq!(cell1.get_value_copy(), CellValue::Fixed(1));
+    /// assert_eq!(cell2.get_value_copy(), CellValue::Unknown(vec![1,2,3,4,5,6,7,8,9])); // still contains 1
+    ///
+    /// ```
     pub fn set_value_exact(&self, value: CellValue){
         unsafe {
             if DEBUG {
@@ -74,6 +119,7 @@ impl Cell {
         self.mark_updates();
     }
 
+    /// Return a copy of the cell's possibilities if it has them.
     pub fn get_value_possibilities(&self) -> Option<Vec<u8>> {
         let value = &*self.value.borrow();
         match value {
@@ -82,6 +128,8 @@ impl Cell {
         }
     }
 
+    // Internal function - mark all the Sections the cell belongs to as having had a change
+    // so that the solver will look at it later
     fn mark_updates(&self){
         {
             let row = &*self.row.upgrade().unwrap();
@@ -100,7 +148,8 @@ impl Cell {
         }
     }
 
-    fn process_possibilities(line: &Line, digit: u8){
+    // Go through and remove digit from the Section's Cells' possibilities
+    fn process_possibilities(line: &Section, digit: u8){
         for (_index, cell) in line.vec.iter().enumerate() {
             let cell = &**cell;
 
@@ -143,38 +192,44 @@ impl Cell {
     }
 }
 
-pub struct Line {
+/// A representation of either a Row, Column, or Square in a Sudoku grid. Don't make this directly; make a Grid.
+pub struct Section {
+    /// A vector of `Rc`s of the `Cell`s inside this Section. We use `Rc` because one of the
+    /// Sections needs to have ownership of the Cells but then the others have to have a different
+    /// signature.
     pub vec: Vec<Rc<Cell>>,
     pub do_update: RefCell<bool>,
     pub index: usize,
-    pub line_type: LineType
+    pub section_type: SectionType
 }
 
 #[derive(Debug)]
-pub enum LineType {
+pub enum SectionType {
     Row,
     Column,
-    Section
+    Square
 }
 
-impl Line {
+impl Section {
     fn push(&mut self, x: Rc<Cell>){
         self.vec.push(x);
     }
 
+    /// Short-hand for accessing `vec` and calling it's `get` method.
     pub fn get(&self, index: usize) -> Option<&Rc<Cell>>{
         self.vec.get(index)
     }
 
-    fn new(index: usize, line_type: LineType) -> Line {
-        Line {
+    fn new(index: usize, line_type: SectionType) -> Section {
+        Section {
             vec: Vec::new(),
             do_update: RefCell::new(false),
             index,
-            line_type
+            section_type: line_type
         }
     }
 
+    /// Return a copy of whether this `Section` has been marked for the solver to work on it or not.
     pub fn do_update(&self) -> bool {
         let do_update = &self.do_update.borrow();
         let do_update = &**do_update;
@@ -185,23 +240,25 @@ impl Line {
 
 type MultiMut<T> = Rc<RefCell<T>>;
 
+/// A representation of a Sudoku grid.
 pub struct Grid {
-    pub rows: Vec<MultiMut<Line>>, // Read from top to bottom
-    pub columns: Vec<MultiMut<Line>>,
-    pub sections: Vec<MultiMut<Line>>,
+    pub rows: Vec<MultiMut<Section>>, // Read from top to bottom
+    pub columns: Vec<MultiMut<Section>>,
+    pub sections: Vec<MultiMut<Section>>,
 }
 
 impl Grid {
+    /// Generate a new empty `Grid` with full empty possibilities for each `Cell`
     pub fn new() -> Grid {
 
-        let mut rows: Vec<MultiMut<Line>> = Vec::new();
-        let mut columns: Vec<MultiMut<Line>> = Vec::new();
-        let mut sections: Vec<MultiMut<Line>> = Vec::new();
+        let mut rows: Vec<MultiMut<Section>> = Vec::new();
+        let mut columns: Vec<MultiMut<Section>> = Vec::new();
+        let mut sections: Vec<MultiMut<Section>> = Vec::new();
 
         for i in 0..9 {
-            rows.push(Rc::new(RefCell::new(Line::new(i, LineType::Row))));
-            columns.push(Rc::new(RefCell::new(Line::new(i, LineType::Column))));
-            sections.push(Rc::new(RefCell::new(Line::new(i, LineType::Section))));
+            rows.push(Rc::new(RefCell::new(Section::new(i, SectionType::Row))));
+            columns.push(Rc::new(RefCell::new(Section::new(i, SectionType::Column))));
+            sections.push(Rc::new(RefCell::new(Section::new(i, SectionType::Square))));
         }
 
         for row_index in 0..9 {
@@ -248,24 +305,26 @@ impl Grid {
         return Grid { rows, columns, sections };
     }
 
-    pub fn get(&self, r: usize, c: usize) -> Result<Rc<Cell>, &str> {
-        if (r > 9) | (c > 9) {
-            return Err("Row or column indices are out of bounds");
-        }
+    /// Returns the `Cell` (in an `Rc`) at the specified coordinates.
+    /// * `r` is the row coordinate (first row starting at 0)
+    /// * `c` is the column coordinate (first column starting at 0)
+    ///
+    /// Returns None if the coordinates are out of bounds.
+    pub fn get(&self, r: usize, c: usize) -> Option<Rc<Cell>> {
 
         let row = match self.rows.get(r) {
             Some(x) => x,
-            None => {return Err("Row index is out of bounds")}
+            None => return None
         };
 
         let row = &*(&**row).borrow();
 
         let cell = match row.get(c) {
             Some(x) => x,
-            None => {return Err("Column index is out of bounds")}
+            None => return None
         };
 
-        return Ok(Rc::clone(cell));
+        return Some(Rc::clone(cell));
     }
 
     fn process_unknown(x: &Vec<u8>, digit: u8, row: &mut String){
@@ -274,6 +333,32 @@ impl Grid {
         } else{
             row.push(' ');
         }
+    }
+
+    /// Find the smallest empty `Cell` in terms of possibilities; returns `None` if all Cells have
+    /// `Fixed` `CellValue`s.
+    pub fn find_smallest_cell(&self) -> Option<Rc<Cell>>{
+        let mut smallest_cell : Option<Rc<Cell>> = None;
+        let mut smallest_size = usize::MAX;
+
+        for x in 0..9 {
+            for y in 0..9 {
+                let cell_rc = self.get(x, y).unwrap();
+                let cell = &*self.get(x, y).unwrap();
+                let cell_value = &*cell.value.borrow();
+
+                match cell_value {
+                    CellValue::Unknown(possibilities) => {
+                        if (possibilities.len() < smallest_size) && (possibilities.len() > 0){
+                            smallest_size = possibilities.len();
+                            smallest_cell = Some(cell_rc);
+                        }
+                    },
+                    _ => {}
+                }
+            }
+        }
+        smallest_cell
     }
 }
 
