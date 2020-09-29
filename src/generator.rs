@@ -251,8 +251,8 @@ mod tests {
     use crate::grid::*;
     use crate::solver::{solve_grid_with_solve_controller, SolveController, Uniqueness, SolveStatus, SolveStatistics};
     use crate::generator::generate_grid;
-    use rand_chacha::SmallRng;
-    use rand_chacha::rand_core::SeedableRng;
+    use rand::prelude::SmallRng;
+    use rand::SeedableRng;
 
     #[test]
     fn test_unique_detection() {
