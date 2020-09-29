@@ -1,12 +1,14 @@
-use crate::grid::{Cell, Grid, CellValue, Section};
-use crate::solver::{SolveStatus, SolveController, Uniqueness, evaluate_grid_with_solve_controller, SolveStatistics};
-use std::rc::Rc;
+use crate::grid::{Cell, CellValue, Grid, Section};
+use crate::solver::{
+    evaluate_grid_with_solve_controller, SolveController, SolveStatistics, SolveStatus, Uniqueness,
+};
 use rand::prelude::*;
+use std::rc::Rc;
 
-pub static mut DEBUG : bool = false;
+pub static mut DEBUG: bool = false;
 
 impl Grid {
-    fn get_random_empty_cell(&self, rng : &mut SmallRng) -> Result<Rc<Cell>, &str> {
+    fn get_random_empty_cell(&self, rng: &mut SmallRng) -> Result<Rc<Cell>, &str> {
         // Idea - put all empty cells into a vector and choose one at random
         // If vector is empty we return an error
 
@@ -16,11 +18,10 @@ impl Grid {
                 let cell = self.get(x, y).unwrap();
                 let add_cell = {
                     let cell_value = &*cell.value.borrow();
-                    match cell_value { // May cause issues with borrow rules
-                        CellValue::Fixed(_) => {false}
-                        CellValue::Unknown(_) => {
-                            true
-                        }
+                    match cell_value {
+                        // May cause issues with borrow rules
+                        CellValue::Fixed(_) => false,
+                        CellValue::Unknown(_) => true,
                     }
                 };
                 if add_cell {
@@ -31,13 +32,13 @@ impl Grid {
 
         match empty_cells.iter().choose(rng) {
             Some(cell) => Ok(Rc::clone(cell)),
-            None => Err("Unable to find an empty cell")
+            None => Err("Unable to find an empty cell"),
         }
     }
 }
 
 impl Cell {
-    fn delete_value(&self){
+    fn delete_value(&self) {
         unsafe {
             if DEBUG {
                 println!("Cell {}, {} had its value deleted.", self.x, self.y);
@@ -47,10 +48,21 @@ impl Cell {
         self.set_value_exact(CellValue::Unknown(vec![])); // placeholder
 
         // This will reset all the possibilities for this cell and the ones that might have been limited by this cell
-        self.section.upgrade().unwrap().borrow().recalculate_and_set_possibilities();
-        self.row.upgrade().unwrap().borrow().recalculate_and_set_possibilities();
-        self.column.upgrade().unwrap().borrow().recalculate_and_set_possibilities();
-
+        self.section
+            .upgrade()
+            .unwrap()
+            .borrow()
+            .recalculate_and_set_possibilities();
+        self.row
+            .upgrade()
+            .unwrap()
+            .borrow()
+            .recalculate_and_set_possibilities();
+        self.column
+            .upgrade()
+            .unwrap()
+            .borrow()
+            .recalculate_and_set_possibilities();
     }
 
     /**
@@ -60,8 +72,8 @@ impl Cell {
     fn calculate_possibilities(&self) -> Vec<u8> {
         // Need to calculate possibilities for this cell
         let mut possibilities = vec![1, 2, 3, 4, 5, 6, 7, 8, 9];
-        fn eliminate_possibilities(possibilities: &mut Vec<u8>, line: &Section, cell: &Cell){
-            for (_index, other) in line.vec.iter().enumerate(){
+        fn eliminate_possibilities(possibilities: &mut Vec<u8>, line: &Section, cell: &Cell) {
+            for (_index, other) in line.vec.iter().enumerate() {
                 if other.x != cell.x || other.y != cell.y {
                     let value = &*other.value.borrow();
                     match value {
@@ -80,9 +92,21 @@ impl Cell {
             }
         }
 
-        eliminate_possibilities(&mut possibilities, &self.section.upgrade().unwrap().borrow(), self);
-        eliminate_possibilities(&mut possibilities, &self.row.upgrade().unwrap().borrow(), self);
-        eliminate_possibilities(&mut possibilities, &self.column.upgrade().unwrap().borrow(), self);
+        eliminate_possibilities(
+            &mut possibilities,
+            &self.section.upgrade().unwrap().borrow(),
+            self,
+        );
+        eliminate_possibilities(
+            &mut possibilities,
+            &self.row.upgrade().unwrap().borrow(),
+            self,
+        );
+        eliminate_possibilities(
+            &mut possibilities,
+            &self.column.upgrade().unwrap().borrow(),
+            self,
+        );
 
         return possibilities;
     }
@@ -95,10 +119,10 @@ impl Section {
             let new_possibilities = {
                 let cell_value = &*cell.value.borrow();
                 match cell_value {
-                    CellValue::Fixed(_) => { continue; }
-                    CellValue::Unknown(_) => {
-                        cell.calculate_possibilities()
+                    CellValue::Fixed(_) => {
+                        continue;
                     }
+                    CellValue::Unknown(_) => cell.calculate_possibilities(),
                 }
             };
 
@@ -107,8 +131,10 @@ impl Section {
     }
 }
 
-pub fn generate_grid(rng: &mut SmallRng, solve_controller: &SolveController) -> (Grid, i32, SolveStatistics) {
-
+pub fn generate_grid(
+    rng: &mut SmallRng,
+    solve_controller: &SolveController,
+) -> (Grid, i32, SolveStatistics) {
     let mut grid = generate_completed_grid(rng);
     let mut num_hints = 81;
 
@@ -132,8 +158,8 @@ pub fn generate_grid(rng: &mut SmallRng, solve_controller: &SolveController) -> 
 
         cell_clone.delete_value();
 
-
-        let (status, statistics) = evaluate_grid_with_solve_controller(&mut grid_clone, solve_controller);
+        let (status, statistics) =
+            evaluate_grid_with_solve_controller(&mut grid_clone, solve_controller);
         match status {
             SolveStatus::Complete(uniqueness) => {
                 let uniqueness = uniqueness.unwrap();
@@ -142,31 +168,34 @@ pub fn generate_grid(rng: &mut SmallRng, solve_controller: &SolveController) -> 
                         num_hints = num_hints - 1;
                         grid = grid_clone;
                     }
-                    Uniqueness::NotUnique => continue // We can't remove this cell; continue onto the next one (note that grid hasn't been modified because of solve_controller)
+                    Uniqueness::NotUnique => continue, // We can't remove this cell; continue onto the next one (note that grid hasn't been modified because of solve_controller)
                 }
             }
-            SolveStatus::Unfinished => panic!("evaluate_grid_with_solve_controller should never return UNFINISHED"),
-            SolveStatus::Invalid => panic!("Removing constraints should not have set the # of solutions to zero")
+            SolveStatus::Unfinished => {
+                panic!("evaluate_grid_with_solve_controller should never return UNFINISHED")
+            }
+            SolveStatus::Invalid => {
+                panic!("Removing constraints should not have set the # of solutions to zero")
+            }
         }
         statistics_option = Some(statistics);
     }
 
     return (grid, num_hints, statistics_option.unwrap());
-
 }
 
 // We generate a completed grid with no mind for difficulty; afterward generate_puzzle will take out as many fields as it can with regards to the difficulty
 fn generate_completed_grid(rng: &mut SmallRng) -> Grid {
-    let solve_controller = SolveController{
+    let solve_controller = SolveController {
         determine_uniqueness: true,
         search_singles: true,
         search_hidden_singles: true,
         find_possibility_groups: true,
         search_useful_constraint: true,
-        make_guesses: true
+        make_guesses: true,
     };
 
-    let mut grid : Grid = loop {
+    let mut grid: Grid = loop {
         // First step; randomly assign 8 different digits to different empty cells and see if there's a possible solution
         // We have to ensure that 8 of the digits appear at least once, otherwise the solution can't be unique because you could interchange the two missing digits throughout the puzzle
         // We do this in a loop so that if we are really unlucky and our guesses stop there from being any solution, we can easily re-run it
@@ -199,24 +228,25 @@ fn generate_completed_grid(rng: &mut SmallRng) -> Grid {
     };
 
     // Alright, we now have a grid that we can start adding more guesses onto until we find a unique solution
-    grid =
-        'outer: loop {
-            let cell = grid.get_random_empty_cell(rng).unwrap(); // We unwrap because if somehow we're filled each cell without finding a solution, that's reason for a panic
-            let cell = &*cell;
-            let mut cell_possibilities = cell.get_value_possibilities().expect("An empty cell has no possibilities");
+    grid = 'outer: loop {
+        let cell = grid.get_random_empty_cell(rng).unwrap(); // We unwrap because if somehow we're filled each cell without finding a solution, that's reason for a panic
+        let cell = &*cell;
+        let mut cell_possibilities = cell
+            .get_value_possibilities()
+            .expect("An empty cell has no possibilities");
 
-            // Let's scramble the order
-            cell_possibilities.shuffle(rng);
+        // Let's scramble the order
+        cell_possibilities.shuffle(rng);
 
-            for (_index, digit) in cell_possibilities.iter().enumerate() {
+        for (_index, digit) in cell_possibilities.iter().enumerate() {
+            let mut grid_clone = grid.clone();
+            let cell = &*grid_clone.get(cell.x, cell.y).unwrap();
 
-                let mut grid_clone = grid.clone();
-                let cell = &*grid_clone.get(cell.x, cell.y).unwrap();
+            cell.set(*digit);
 
-                cell.set(*digit);
-
-                let (status, _statistics) = evaluate_grid_with_solve_controller(&mut grid_clone, &solve_controller);
-                match status {
+            let (status, _statistics) =
+                evaluate_grid_with_solve_controller(&mut grid_clone, &solve_controller);
+            match status {
                     SolveStatus::Complete(uniqueness) => {
                         let uniqueness = uniqueness.unwrap();
                         match uniqueness {
@@ -230,27 +260,29 @@ fn generate_completed_grid(rng: &mut SmallRng) -> Grid {
                     SolveStatus::Unfinished => panic!("evaluate_grid_with_solve_controller should never return UNFINISHED if making guesses"),
                     SolveStatus::Invalid => continue // Try another guess
                 }
+        }
 
-            };
-
-            // If we reach this point in the loop, then none of the possibilities for cell provided any solution
-            // Which means something serious happened before in the solving process - reason for panic
-            eprint!("No valid hints were found for puzzle\n{} at cell ({}, {})", grid, cell.x, cell.y);
-            panic!("Unable to continue as puzzle is invalid");
-
-        };
+        // If we reach this point in the loop, then none of the possibilities for cell provided any solution
+        // Which means something serious happened before in the solving process - reason for panic
+        eprint!(
+            "No valid hints were found for puzzle\n{} at cell ({}, {})",
+            grid, cell.x, cell.y
+        );
+        panic!("Unable to continue as puzzle is invalid");
+    };
 
     crate::solver::solve_grid(&mut grid);
 
     return grid;
 }
 
-
 #[cfg(test)]
 mod tests {
-    use crate::grid::*;
-    use crate::solver::{solve_grid_with_solve_controller, SolveController, Uniqueness, SolveStatus, SolveStatistics};
     use crate::generator::generate_grid;
+    use crate::grid::*;
+    use crate::solver::{
+        solve_grid_with_solve_controller, SolveController, SolveStatistics, SolveStatus, Uniqueness,
+    };
     use rand::prelude::SmallRng;
     use rand::SeedableRng;
 
@@ -292,36 +324,40 @@ mod tests {
 
         grid.get(8, 2).unwrap().set(6);
 
-        let status = solve_grid_with_solve_controller(&mut grid, &SolveController{
-            determine_uniqueness: true,
-            search_singles: true,
-            search_hidden_singles: true,
-            find_possibility_groups: true,
-            search_useful_constraint: true,
-            make_guesses: true
-        }, &mut SolveStatistics::new());
+        let status = solve_grid_with_solve_controller(
+            &mut grid,
+            &SolveController {
+                determine_uniqueness: true,
+                search_singles: true,
+                search_hidden_singles: true,
+                find_possibility_groups: true,
+                search_useful_constraint: true,
+                make_guesses: true,
+            },
+            &mut SolveStatistics::new(),
+        );
 
         assert_eq!(status, SolveStatus::Complete(Some(Uniqueness::NotUnique)));
-
     }
 
     // There was a bug where even though mutate_grid was set to false, the end result was still solved
     #[test]
-    fn ensure_grid_not_complete(){
-        let solve_controller = SolveController{
+    fn ensure_grid_not_complete() {
+        let solve_controller = SolveController {
             determine_uniqueness: true,
             search_singles: true,
             search_hidden_singles: true,
             find_possibility_groups: true,
             search_useful_constraint: true,
-            make_guesses: true
+            make_guesses: true,
         };
 
         // Note that the puzzle itself doesn't matter
-        let (grid, _num_hints, _statistics) = generate_grid(&mut SmallRng::seed_from_u64(123), &solve_controller);
+        let (grid, _num_hints, _statistics) =
+            generate_grid(&mut SmallRng::seed_from_u64(123), &solve_controller);
 
         let mut observed_empty_cell = false;
-        'outer : for x in 0..9 {
+        'outer: for x in 0..9 {
             for y in 0..9 {
                 let cell = grid.get(x, y).unwrap();
                 let value = cell.get_value_copy();
@@ -337,6 +373,5 @@ mod tests {
         }
 
         assert!(observed_empty_cell);
-
     }
 }

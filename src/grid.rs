@@ -1,13 +1,13 @@
-use std::rc::{Rc, Weak};
-use std::cell::{RefCell};
+use std::cell::RefCell;
 use std::fmt::Formatter;
+use std::rc::{Rc, Weak};
 
 pub static mut DEBUG: bool = false;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CellValue {
     Fixed(u8),
-    Unknown(Vec<u8>)
+    Unknown(Vec<u8>),
 }
 
 /// A representation of a single cell in a Sudoku grid. Don't make this directly; make a Grid.
@@ -42,7 +42,7 @@ impl Cell {
     /// assert_eq!(cell2.get_value_copy(), CellValue::Unknown(vec![2,3,4,5,6,7,8,9]));
     ///
     /// ```
-    pub fn set(&self, digit: u8){
+    pub fn set(&self, digit: u8) {
         unsafe {
             if DEBUG {
                 println!("Cell {}, {} was set with digit {}", self.x, self.y, digit);
@@ -76,12 +76,12 @@ impl Cell {
 
     /// Set the cell value with a provided `CellValue`; if `value` is Fixed then the related cell's
     /// possibilities are adjusted like in `set`.
-    pub fn set_value(&self, value: CellValue){
+    pub fn set_value(&self, value: CellValue) {
         match value {
             CellValue::Fixed(digit) => {
                 self.set(digit);
                 return;
-            },
+            }
             CellValue::Unknown(_) => {
                 self.set_value_exact(value);
             } // continue on
@@ -108,10 +108,13 @@ impl Cell {
     /// assert_eq!(cell2.get_value_copy(), CellValue::Unknown(vec![1,2,3,4,5,6,7,8,9])); // still contains 1
     ///
     /// ```
-    pub fn set_value_exact(&self, value: CellValue){
+    pub fn set_value_exact(&self, value: CellValue) {
         unsafe {
             if DEBUG {
-                println!("Cell {}, {} was set with CellValue exact {:?}", self.x, self.y, value);
+                println!(
+                    "Cell {}, {} was set with CellValue exact {:?}",
+                    self.x, self.y, value
+                );
             }
         }
 
@@ -124,13 +127,13 @@ impl Cell {
         let value = &*self.value.borrow();
         match value {
             CellValue::Fixed(_) => None,
-            CellValue::Unknown(x) => Some(x.clone())
+            CellValue::Unknown(x) => Some(x.clone()),
         }
     }
 
     // Internal function - mark all the Sections the cell belongs to as having had a change
     // so that the solver will look at it later
-    fn mark_updates(&self){
+    fn mark_updates(&self) {
         {
             let row = &*self.row.upgrade().unwrap();
             let row = &*row.borrow();
@@ -149,12 +152,12 @@ impl Cell {
     }
 
     // Go through and remove digit from the Section's Cells' possibilities
-    fn process_possibilities(line: &Section, digit: u8){
+    fn process_possibilities(line: &Section, digit: u8) {
         for (_index, cell) in line.vec.iter().enumerate() {
             let cell = &**cell;
 
             // Find the new CellValue to set; may be None if the cell was already fixed or had no possibilities remaining
-            let new_value_option : Option<CellValue> = {
+            let new_value_option: Option<CellValue> = {
                 let value = &*cell.value.borrow();
 
                 match value {
@@ -162,7 +165,9 @@ impl Cell {
                         let mut new_possibilities = possibilities.clone();
 
                         match new_possibilities.binary_search(&digit) {
-                            Ok(index_remove) => {new_possibilities.remove(index_remove);},
+                            Ok(index_remove) => {
+                                new_possibilities.remove(index_remove);
+                            }
                             _ => {}
                         };
 
@@ -176,18 +181,17 @@ impl Cell {
                         } else {
                             Some(CellValue::UNKNOWN(new_possibilities))
                         }*/
-                    },
-                    CellValue::Fixed(_) => {None}
+                    }
+                    CellValue::Fixed(_) => None,
                 }
             };
 
             match new_value_option {
                 Some(new_value) => {
                     cell.set_value(new_value);
-                },
+                }
                 None => {}
             }
-
         }
     }
 }
@@ -200,23 +204,23 @@ pub struct Section {
     pub vec: Vec<Rc<Cell>>,
     pub do_update: RefCell<bool>,
     pub index: usize,
-    pub section_type: SectionType
+    pub section_type: SectionType,
 }
 
 #[derive(Debug)]
 pub enum SectionType {
     Row,
     Column,
-    Square
+    Square,
 }
 
 impl Section {
-    fn push(&mut self, x: Rc<Cell>){
+    fn push(&mut self, x: Rc<Cell>) {
         self.vec.push(x);
     }
 
     /// Short-hand for accessing `vec` and calling it's `get` method.
-    pub fn get(&self, index: usize) -> Option<&Rc<Cell>>{
+    pub fn get(&self, index: usize) -> Option<&Rc<Cell>> {
         self.vec.get(index)
     }
 
@@ -225,7 +229,7 @@ impl Section {
             vec: Vec::new(),
             do_update: RefCell::new(false),
             index,
-            section_type: line_type
+            section_type: line_type,
         }
     }
 
@@ -250,7 +254,6 @@ pub struct Grid {
 impl Grid {
     /// Generate a new empty `Grid` with full empty possibilities for each `Cell`
     pub fn new() -> Grid {
-
         let mut rows: Vec<MultiMut<Section>> = Vec::new();
         let mut columns: Vec<MultiMut<Section>> = Vec::new();
         let mut sections: Vec<MultiMut<Section>> = Vec::new();
@@ -262,17 +265,17 @@ impl Grid {
         }
 
         for row_index in 0..9 {
-            let row_rc = unsafe {
-                rows.get_unchecked(row_index)
-            };
+            let row_rc = unsafe { rows.get_unchecked(row_index) };
 
             let row_ref = &mut *row_rc.borrow_mut();
 
             for column_index in 0..9 {
                 let section_index = (row_index / 3) * 3 + column_index / 3;
                 let (column_rc, section_rc) = unsafe {
-                    (columns.get_unchecked_mut(column_index),
-                     sections.get_unchecked_mut(section_index))
+                    (
+                        columns.get_unchecked_mut(column_index),
+                        sections.get_unchecked_mut(section_index),
+                    )
                 };
 
                 let column_weak = Rc::downgrade(column_rc);
@@ -289,7 +292,7 @@ impl Grid {
                     value: RefCell::new(CellValue::Unknown(vec![1, 2, 3, 4, 5, 6, 7, 8, 9])),
                     row: row_weak,
                     column: column_weak,
-                    section: section_weak
+                    section: section_weak,
                 };
 
                 let ref1 = Rc::new(cell);
@@ -302,7 +305,11 @@ impl Grid {
             }
         }
 
-        return Grid { rows, columns, sections };
+        return Grid {
+            rows,
+            columns,
+            sections,
+        };
     }
 
     /// Returns the `Cell` (in an `Rc`) at the specified coordinates.
@@ -311,34 +318,33 @@ impl Grid {
     ///
     /// Returns None if the coordinates are out of bounds.
     pub fn get(&self, r: usize, c: usize) -> Option<Rc<Cell>> {
-
         let row = match self.rows.get(r) {
             Some(x) => x,
-            None => return None
+            None => return None,
         };
 
         let row = &*(&**row).borrow();
 
         let cell = match row.get(c) {
             Some(x) => x,
-            None => return None
+            None => return None,
         };
 
         return Some(Rc::clone(cell));
     }
 
-    fn process_unknown(x: &Vec<u8>, digit: u8, row: &mut String){
+    fn process_unknown(x: &Vec<u8>, digit: u8, row: &mut String) {
         if x.contains(&digit) {
             row.push('*');
-        } else{
+        } else {
             row.push(' ');
         }
     }
 
     /// Find the smallest empty `Cell` in terms of possibilities; returns `None` if all Cells have
     /// `Fixed` `CellValue`s.
-    pub fn find_smallest_cell(&self) -> Option<Rc<Cell>>{
-        let mut smallest_cell : Option<Rc<Cell>> = None;
+    pub fn find_smallest_cell(&self) -> Option<Rc<Cell>> {
+        let mut smallest_cell: Option<Rc<Cell>> = None;
         let mut smallest_size = usize::MAX;
 
         for x in 0..9 {
@@ -349,11 +355,11 @@ impl Grid {
 
                 match cell_value {
                     CellValue::Unknown(possibilities) => {
-                        if (possibilities.len() < smallest_size) && (possibilities.len() > 0){
+                        if (possibilities.len() < smallest_size) && (possibilities.len() > 0) {
                             smallest_size = possibilities.len();
                             smallest_cell = Some(cell_rc);
                         }
-                    },
+                    }
                     _ => {}
                 }
             }
@@ -397,24 +403,23 @@ impl Clone for Grid {
 impl std::fmt::Display for Grid {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for r in 0..9 {
-
             // Each row corresponds to 3 rows since we leave room for guesses
             let mut row1 = String::new();
             let mut row2 = String::new();
             let mut row3 = String::new();
 
             for c in 0..9 {
-
                 let cell = &*self.get(r, c).unwrap();
                 let value = &*cell.value.borrow();
-
 
                 match value {
                     CellValue::Fixed(x) => {
                         row1.push_str("   ");
-                        row2.push(' '); row2.push_str(&x.to_string()); row2.push(' ');
+                        row2.push(' ');
+                        row2.push_str(&x.to_string());
+                        row2.push(' ');
                         row3.push_str("   ");
-                    },
+                    }
                     CellValue::Unknown(x) => {
                         Grid::process_unknown(&x, 1, &mut row1);
                         Grid::process_unknown(&x, 2, &mut row1);
@@ -430,17 +435,15 @@ impl std::fmt::Display for Grid {
                     }
                 };
 
-                if (c % 3 == 2) && (c < 8){
+                if (c % 3 == 2) && (c < 8) {
                     row1.push('\u{2503}');
                     row2.push('\u{2503}');
                     row3.push('\u{2503}');
-                } else if c < 8{
+                } else if c < 8 {
                     row1.push('┆');
                     row2.push('┆');
                     row3.push('┆');
                 }
-
-
             }
 
             write!(f, "{}", row1)?;
@@ -452,7 +455,7 @@ impl std::fmt::Display for Grid {
 
             if (r % 3 == 2) && (r < 8) {
                 write!(f, "━━━┿━━━┿━━━╋━━━┿━━━┿━━━╋━━━┿━━━┿━━━\n")?;
-            } else if r < 8{
+            } else if r < 8 {
                 write!(f, "┄┄┄┼┄┄┄┼┄┄┄╂┄┄┄┼┄┄┄┼┄┄┄╂┄┄┄┼┄┄┄┼┄┄┄\n")?;
             }
         }

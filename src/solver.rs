@@ -1,34 +1,32 @@
-
+use crate::grid::{Cell, CellValue, Grid, Section};
 use std::rc::Rc;
-use crate::grid::{Cell, Section, Grid, CellValue};
 
 pub static mut DEBUG: bool = false;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Uniqueness {
     Unique,
-    NotUnique
+    NotUnique,
 }
 
 #[derive(Eq, PartialEq, Debug)]
 pub enum SolveStatus {
     Complete(Option<Uniqueness>),
     Unfinished,
-    Invalid
+    Invalid,
 }
 
 /// See `SolveController` for a description of the solving strategies.
-enum SolveAction{
+enum SolveAction {
     Single,
     HiddenSingle,
     PossibilityGroup,
     UsefulConstraints,
-    Guess
+    Guess,
 }
 
 impl SolveStatus {
-
-    fn increment(self, additional_status : SolveStatus) -> SolveStatus {
+    fn increment(self, additional_status: SolveStatus) -> SolveStatus {
         match self {
             SolveStatus::Complete(uniqueness_option) => {
                 if uniqueness_option.is_none() {
@@ -37,19 +35,24 @@ impl SolveStatus {
                     match uniqueness_option.unwrap() {
                         Uniqueness::NotUnique => SolveStatus::Complete(Some(Uniqueness::NotUnique)),
                         Uniqueness::Unique => match additional_status {
-                            SolveStatus::Complete(_) => SolveStatus::Complete(Some(Uniqueness::NotUnique)),
-                            SolveStatus::Unfinished => SolveStatus::Complete(Some(Uniqueness::Unique)),
-                            SolveStatus::Invalid => SolveStatus::Complete(Some(Uniqueness::Unique))
-                        }
+                            SolveStatus::Complete(_) => {
+                                SolveStatus::Complete(Some(Uniqueness::NotUnique))
+                            }
+                            SolveStatus::Unfinished => {
+                                SolveStatus::Complete(Some(Uniqueness::Unique))
+                            }
+                            SolveStatus::Invalid => SolveStatus::Complete(Some(Uniqueness::Unique)),
+                        },
                     }
                 }
-
             }
             SolveStatus::Unfinished => match additional_status {
                 SolveStatus::Invalid => SolveStatus::Unfinished,
-                _ => additional_status
+                _ => additional_status,
             },
-            SolveStatus::Invalid => panic!("increment() shouldn't be called on SolveStatus::Invalid")
+            SolveStatus::Invalid => {
+                panic!("increment() shouldn't be called on SolveStatus::Invalid")
+            }
         }
     }
 }
@@ -117,47 +120,42 @@ pub struct SolveStatistics {
     pub hidden_singles: u32,
     pub possibility_groups: u32,
     pub useful_constraints: u32,
-    pub guesses: u32
+    pub guesses: u32,
 }
 
 impl SolveStatistics {
-
     /// Create a new SolveStatistics with `0` counts set for all the fields.
     pub fn new() -> SolveStatistics {
-        SolveStatistics{
+        SolveStatistics {
             singles: 0,
             hidden_singles: 0,
             possibility_groups: 0,
             useful_constraints: 0,
-            guesses: 0
+            guesses: 0,
         }
     }
 
     fn increment(&mut self, action: &SolveAction) {
         match action {
-            SolveAction::Single => {self.singles = self.singles + 1}
-            SolveAction::HiddenSingle => {self.hidden_singles = self.hidden_singles + 1}
-            SolveAction::PossibilityGroup => {self.possibility_groups = self.possibility_groups + 1}
-            SolveAction::UsefulConstraints => {self.useful_constraints = self.useful_constraints + 1}
-            SolveAction::Guess => {self.guesses = self.guesses + 1}
+            SolveAction::Single => self.singles = self.singles + 1,
+            SolveAction::HiddenSingle => self.hidden_singles = self.hidden_singles + 1,
+            SolveAction::PossibilityGroup => self.possibility_groups = self.possibility_groups + 1,
+            SolveAction::UsefulConstraints => self.useful_constraints = self.useful_constraints + 1,
+            SolveAction::Guess => self.guesses = self.guesses + 1,
         }
     }
 }
 
-
-
-
-
 // Code for identify_and_process_possibility_groups (it uses it's own structs)
 mod process_possibility_groups {
-    use crate::grid::{Section, CellValue};
+    use crate::grid::{CellValue, Section};
     use std::collections::HashSet;
     use std::rc::Rc;
 
-    struct FauxCell{
+    struct FauxCell {
         index: usize,
         possibilities: HashSet<u8>,
-        in_group: bool
+        in_group: bool,
     }
 
     impl FauxCell {
@@ -165,15 +163,16 @@ mod process_possibility_groups {
             self.possibilities.len()
         }
 
-        fn remove(&mut self, to_remove: &HashSet<u8>){
-            to_remove.iter().for_each(|digit| {self.possibilities.remove(digit);});
+        fn remove(&mut self, to_remove: &HashSet<u8>) {
+            to_remove.iter().for_each(|digit| {
+                self.possibilities.remove(digit);
+            });
         }
     }
 
-    struct FauxLine (Vec<FauxCell>);
+    struct FauxLine(Vec<FauxCell>);
 
     impl FauxLine {
-
         fn num_in_group(&self) -> usize {
             self.0.iter().filter(|faux_cell| faux_cell.in_group).count()
         }
@@ -185,27 +184,29 @@ mod process_possibility_groups {
 
     // See if there's a set of cells with possibilities that exclude those possibilities from other cells.
     // Runs recursively on each group to identify all groups in case there's more than 2.
-    pub fn identify_and_process_possibility_groups(line: &Section) -> bool{
+    pub fn identify_and_process_possibility_groups(line: &Section) -> bool {
         unsafe {
             if super::DEBUG {
-                println!("Looking for possibility groups on line {:?} {}", line.section_type, line.index);
+                println!(
+                    "Looking for possibility groups on line {:?} {}",
+                    line.section_type, line.index
+                );
             }
         }
 
         bisect_possibility_groups(line, vec![0, 1, 2, 3, 4, 5, 6, 7, 8])
     }
 
-    fn bisect_possibility_groups(line: &Section, cells_of_interest: Vec<usize>) -> bool{
-
+    fn bisect_possibility_groups(line: &Section, cells_of_interest: Vec<usize>) -> bool {
         /*
-            Algorithm -
-                Setup - Let count = 0
-                1. Choose cell with least number of possibilities. Add to in-group.
-                2. Add to count the number of possibilities in that cell
-                3. Remove the possibilities of that cell from all other out-group cells.
-                4. If the number of cells in group == count, finish.
-                5. Goto 1
-         */
+           Algorithm -
+               Setup - Let count = 0
+               1. Choose cell with least number of possibilities. Add to in-group.
+               2. Add to count the number of possibilities in that cell
+               3. Remove the possibilities of that cell from all other out-group cells.
+               4. If the number of cells in group == count, finish.
+               5. Goto 1
+        */
         // For later recursive calls; put here because of scope reasons
         let mut in_group_indices = Vec::new();
         let mut out_group_indices = Vec::new();
@@ -235,15 +236,15 @@ mod process_possibility_groups {
                                 set.insert(digit.clone());
                             }
                             set
-                        },
-                        CellValue::Fixed(_) => { continue }
+                        }
+                        CellValue::Fixed(_) => continue,
                     }
                 };
 
                 let faux_cell = FauxCell {
                     index: i,
                     possibilities: faux_possibilities,
-                    in_group: false
+                    in_group: false,
                 };
 
                 faux_line.0.push(faux_cell);
@@ -265,7 +266,12 @@ mod process_possibility_groups {
                 let mut smallest_cell: Option<&mut FauxCell> = None;
                 let mut smallest_size = usize::MAX;
 
-                for (_index, cell) in faux_line.0.iter_mut().filter(|faux_cell| !faux_cell.in_group).enumerate() {
+                for (_index, cell) in faux_line
+                    .0
+                    .iter_mut()
+                    .filter(|faux_cell| !faux_cell.in_group)
+                    .enumerate()
+                {
                     if cell.len() < smallest_size {
                         smallest_size = cell.len();
                         smallest_cell = Some(cell);
@@ -278,11 +284,15 @@ mod process_possibility_groups {
                 // Step 2
                 count = count + smallest_size;
 
-
                 let possibilities_to_remove = smallest_cell.possibilities.clone(); // Necessary because of mutable borrow rules
 
                 // Step 3
-                for (_index, cell) in faux_line.0.iter_mut().filter(|faux_cell| !faux_cell.in_group).enumerate() {
+                for (_index, cell) in faux_line
+                    .0
+                    .iter_mut()
+                    .filter(|faux_cell| !faux_cell.in_group)
+                    .enumerate()
+                {
                     cell.remove(&possibilities_to_remove);
                 }
 
@@ -293,7 +303,8 @@ mod process_possibility_groups {
             }
 
             // Now we have to see if this was worth it
-            if faux_line.num_out_group() > 0 { // Worth it
+            if faux_line.num_out_group() > 0 {
+                // Worth it
                 // We now have two distinct groups and can separate their possibilities
                 let mut in_group_possibilities = HashSet::new();
                 let mut out_group_possibilities = HashSet::new();
@@ -301,9 +312,13 @@ mod process_possibility_groups {
                 // Collect the possibilities for each group
                 for (_index, cell) in faux_line.0.iter().enumerate() {
                     if cell.in_group {
-                        cell.possibilities.iter().for_each(|digit| {in_group_possibilities.insert(digit.clone());});
+                        cell.possibilities.iter().for_each(|digit| {
+                            in_group_possibilities.insert(digit.clone());
+                        });
                     } else {
-                        cell.possibilities.iter().for_each(|digit| {out_group_possibilities.insert(digit.clone());});
+                        cell.possibilities.iter().for_each(|digit| {
+                            out_group_possibilities.insert(digit.clone());
+                        });
                     }
                 }
 
@@ -314,26 +329,29 @@ mod process_possibility_groups {
                         let value = &*real_cell.value.borrow();
                         match value {
                             CellValue::Unknown(possibilities) => possibilities.clone(),
-                            CellValue::Fixed(_) => {panic!("Faux_cell shouldn't have linked to fixed cell")}
+                            CellValue::Fixed(_) => {
+                                panic!("Faux_cell shouldn't have linked to fixed cell")
+                            }
                         }
                     };
                     let starting_possibility_size = possibilities.len();
 
                     let possibilities_to_remove = match faux_cell.in_group {
                         true => &out_group_possibilities,
-                        false => &in_group_possibilities
+                        false => &in_group_possibilities,
                     };
 
                     for (_i, possibility) in possibilities_to_remove.iter().enumerate() {
                         match possibilities.binary_search(possibility) {
                             Ok(x) => {
                                 possibilities.remove(x);
-                            },
+                            }
                             Err(_) => {}
                         };
                     }
 
-                    if possibilities.len() < starting_possibility_size { // We have a change to make
+                    if possibilities.len() < starting_possibility_size {
+                        // We have a change to make
                         made_change = true;
                         let new_value = {
                             if possibilities.len() == 1 {
@@ -371,24 +389,27 @@ mod process_possibility_groups {
 }
 
 // Search for a cell with only one possibility so that we can set it to FIXED
-fn search_single_possibility(line: &Section) -> bool{
+fn search_single_possibility(line: &Section) -> bool {
     unsafe {
         if DEBUG {
-            println!("search_single_possibility on line {:?} {}", line.section_type, line.index);
+            println!(
+                "search_single_possibility on line {:?} {}",
+                line.section_type, line.index
+            );
         }
     }
 
     let mut made_change = false;
 
-    for (_index, cell) in line.vec.iter().enumerate(){
-        match cell.get_value_possibilities(){
+    for (_index, cell) in line.vec.iter().enumerate() {
+        match cell.get_value_possibilities() {
             Some(x) => {
                 if x.len() == 1 {
                     let new_value = CellValue::Fixed(x.first().unwrap().clone());
                     cell.set_value(new_value);
                     made_change = true;
                 }
-            },
+            }
             None => {}
         }
     }
@@ -397,37 +418,47 @@ fn search_single_possibility(line: &Section) -> bool{
 }
 
 // Count up how many times each possibility occurs in the Line. If it only occurs once, that's a hidden single that we can set
-fn search_hidden_single(line: &Section) -> bool{
+fn search_hidden_single(line: &Section) -> bool {
     enum Count {
         None,
         One(Rc<Cell>),
-        Many
+        Many,
     };
 
     impl Count {
-        fn increment(&self, cell: Rc<Cell>) -> Count{
+        fn increment(&self, cell: Rc<Cell>) -> Count {
             match self {
-                Count::None => {Count::One(cell)}
-                Count::One(_) => {Count::Many}
-                Count::Many => {Count::Many}
+                Count::None => Count::One(cell),
+                Count::One(_) => Count::Many,
+                Count::Many => Count::Many,
             }
         }
     }
 
     let mut made_change = false;
 
-    let mut counts = [Count::None, Count::None, Count::None, Count::None, Count::None, Count::None, Count::None, Count::None, Count::None];
+    let mut counts = [
+        Count::None,
+        Count::None,
+        Count::None,
+        Count::None,
+        Count::None,
+        Count::None,
+        Count::None,
+        Count::None,
+        Count::None,
+    ];
 
     for (_index, cell) in line.vec.iter().enumerate() {
         let value = &*cell.value.borrow();
         match value {
             CellValue::Unknown(possibilities) => {
                 for digit in 1..10 {
-                    if possibilities.contains(&(digit as u8)){
-                        counts[digit-1] = counts[digit-1].increment(Rc::clone(cell));
+                    if possibilities.contains(&(digit as u8)) {
+                        counts[digit - 1] = counts[digit - 1].increment(Rc::clone(cell));
                     }
                 }
-            },
+            }
             CellValue::Fixed(_) => {} // do nothing
         }
     }
@@ -437,7 +468,7 @@ fn search_hidden_single(line: &Section) -> bool{
             Count::One(cell) => {
                 cell.set((digit + 1) as u8);
                 made_change = true;
-            },
+            }
             _ => {}
         }
     }
@@ -445,49 +476,61 @@ fn search_hidden_single(line: &Section) -> bool{
     return made_change;
 }
 
-mod search_useful_constraint{
-    use crate::grid::{Grid, Section, SectionType, CellValue};
-    use std::rc::{Rc, Weak};
+mod search_useful_constraint {
+    use crate::grid::{CellValue, Grid, Section, SectionType};
     use std::cell::RefCell;
+    use std::rc::{Rc, Weak};
 
     enum PossibilityLines {
         Unique(usize),
         Invalid,
-        None
+        None,
     }
 
     impl PossibilityLines {
         fn is_invalid(&self) -> bool {
             match &self {
                 PossibilityLines::Invalid => true,
-                _ => false
+                _ => false,
             }
         }
     }
 
     // If all the cells for a particular possibility share a same other Line, they can remove that possibility from other cells in the main line.
-// I.e. If possibility '1' only occurs in the first row for section 0, then you can remove that possibility
-// from row 0 across the other sections. Conversely, if the possibility only occurs in the first section
-// for row 0, then you can remove the possibility from the rest of section 0.
-    pub fn search_useful_constraint(grid: &Grid, line: &Section) -> bool{
+    // I.e. If possibility '1' only occurs in the first row for section 0, then you can remove that possibility
+    // from row 0 across the other sections. Conversely, if the possibility only occurs in the first section
+    // for row 0, then you can remove the possibility from the rest of section 0.
+    pub fn search_useful_constraint(grid: &Grid, line: &Section) -> bool {
         unsafe {
             if super::DEBUG {
-                println!("Searching for a useful constraint on line {:?} {}", line.section_type, line.index);
+                println!(
+                    "Searching for a useful constraint on line {:?} {}",
+                    line.section_type, line.index
+                );
             }
         }
 
         let mut made_change = false;
 
         let (check_row, check_column, check_section) = match line.section_type {
-            SectionType::Row => {(false, false, true)},
-            SectionType::Column => {(false, false, true)},
-            SectionType::Square => {(true, true, false)},
+            SectionType::Row => (false, false, true),
+            SectionType::Column => (false, false, true),
+            SectionType::Square => (true, true, false),
         };
 
         for possibility in 0..9 {
-            let mut rows = match check_row {true => PossibilityLines::None, false => PossibilityLines::Invalid };
-            let mut columns = match check_column {true => PossibilityLines::None, false => PossibilityLines::Invalid };
-            let mut sections = match check_section {true => PossibilityLines::None, false => PossibilityLines::Invalid };
+            let mut rows = match check_row {
+                true => PossibilityLines::None,
+                false => PossibilityLines::Invalid,
+            };
+            let mut columns = match check_column {
+                true => PossibilityLines::None,
+                false => PossibilityLines::Invalid,
+            };
+            let mut sections = match check_section {
+                true => PossibilityLines::None,
+                false => PossibilityLines::Invalid,
+            };
 
             for cell_id in 0..9 {
                 let cell_ref = line.get(cell_id).unwrap();
@@ -496,7 +539,8 @@ mod search_useful_constraint{
                 let value = &*cell_ref.value.borrow();
 
                 match value {
-                    CellValue::Fixed(x) => { // We can deduce this possibility won't occur elsewhere in our row, so leave for-loop
+                    CellValue::Fixed(x) => {
+                        // We can deduce this possibility won't occur elsewhere in our row, so leave for-loop
                         if possibility.eq(x) {
                             rows = process_possibility_line(rows, &cell_ref.row);
                             columns = process_possibility_line(columns, &cell_ref.column);
@@ -521,33 +565,52 @@ mod search_useful_constraint{
             // Check each line and see if we can determine anything
             match rows {
                 PossibilityLines::Unique(index) => {
-                    made_change = made_change |
-                        remove_possibilities_line(grid.rows.get(index).unwrap(), possibility, &line.section_type, line.index);
-                },
+                    made_change = made_change
+                        | remove_possibilities_line(
+                            grid.rows.get(index).unwrap(),
+                            possibility,
+                            &line.section_type,
+                            line.index,
+                        );
+                }
                 _ => {}
             }
             match columns {
                 PossibilityLines::Unique(index) => {
-                    made_change = made_change |
-                        remove_possibilities_line(grid.columns.get(index).unwrap(), possibility, &line.section_type, line.index);
-                },
+                    made_change = made_change
+                        | remove_possibilities_line(
+                            grid.columns.get(index).unwrap(),
+                            possibility,
+                            &line.section_type,
+                            line.index,
+                        );
+                }
                 _ => {}
             }
             match sections {
                 PossibilityLines::Unique(index) => {
-                    made_change = made_change |
-                        remove_possibilities_line(grid.sections.get(index).unwrap(), possibility, &line.section_type, line.index);
-                },
+                    made_change = made_change
+                        | remove_possibilities_line(
+                            grid.sections.get(index).unwrap(),
+                            possibility,
+                            &line.section_type,
+                            line.index,
+                        );
+                }
                 _ => {}
             }
         }
 
         return made_change;
-
     }
 
     // initial_line_type and initial_line_index are to identify the cells that should NOT have their possibilities removed
-    fn remove_possibilities_line(line: &Rc<RefCell<Section>>, digit_to_remove: u8, initial_line_type: &SectionType, initial_line_index: usize) -> bool {
+    fn remove_possibilities_line(
+        line: &Rc<RefCell<Section>>,
+        digit_to_remove: u8,
+        initial_line_type: &SectionType,
+        initial_line_index: usize,
+    ) -> bool {
         let line = &*(&**line).borrow();
         let mut made_change = false;
 
@@ -559,7 +622,7 @@ mod search_useful_constraint{
                         let parent_line = match initial_line_type {
                             SectionType::Row => &cell.row,
                             SectionType::Column => &cell.column,
-                            SectionType::Square => &cell.section
+                            SectionType::Square => &cell.section,
                         };
                         let parent_line = &*parent_line.upgrade().unwrap();
                         let parent_line = &*parent_line.borrow();
@@ -568,44 +631,52 @@ mod search_useful_constraint{
                             continue;
                         }
 
-                        let new_possibilities = match possibilities.binary_search(&digit_to_remove) {
+                        let new_possibilities = match possibilities.binary_search(&digit_to_remove)
+                        {
                             Ok(x) => {
                                 let mut new_possibilities = possibilities.clone();
                                 new_possibilities.remove(x);
                                 new_possibilities
-                            },
-                            Err(_) => { continue; }
+                            }
+                            Err(_) => {
+                                continue;
+                            }
                         };
 
                         let new_value;
                         if new_possibilities.len() == 1 {
-                            new_value = CellValue::Fixed(new_possibilities.first().unwrap().clone());
+                            new_value =
+                                CellValue::Fixed(new_possibilities.first().unwrap().clone());
                         } else {
                             new_value = CellValue::Unknown(new_possibilities);
                         }
 
                         new_value
-                    },
-                    _ => { continue; }
+                    }
+                    _ => {
+                        continue;
+                    }
                 }
             };
 
             cell.set_value(new_value);
             made_change = true;
-
         }
 
         return made_change;
     }
 
     // We detected a useful constraint
-    fn process_possibility_line(possibility_line: PossibilityLines, line: &Weak<RefCell<Section>>) -> PossibilityLines {
+    fn process_possibility_line(
+        possibility_line: PossibilityLines,
+        line: &Weak<RefCell<Section>>,
+    ) -> PossibilityLines {
         let line = line.upgrade().unwrap();
         let line = &*(&*line).borrow();
 
         match possibility_line {
-            PossibilityLines::None => {PossibilityLines::Unique(line.index)},
-            PossibilityLines::Invalid => {possibility_line},
+            PossibilityLines::None => PossibilityLines::Unique(line.index),
+            PossibilityLines::Invalid => possibility_line,
             PossibilityLines::Unique(x) => {
                 if line.index.eq(&x) {
                     possibility_line
@@ -615,11 +686,14 @@ mod search_useful_constraint{
             }
         }
     }
-
 }
 
-
-fn solve_line(grid: &Grid, line: &Section, solve_controller: &SolveController, solve_statistics: &mut SolveStatistics){
+fn solve_line(
+    grid: &Grid,
+    line: &Section,
+    solve_controller: &SolveController,
+    solve_statistics: &mut SolveStatistics,
+) {
     unsafe {
         if DEBUG {
             println!("Solving {:?} {}", line.section_type, line.index);
@@ -631,7 +705,10 @@ fn solve_line(grid: &Grid, line: &Section, solve_controller: &SolveController, s
     if solve_controller.search_singles() {
         unsafe {
             if DEBUG {
-                println!("Searching for singles on line {:?} of {}\n{}", line.section_type, line.index, grid);
+                println!(
+                    "Searching for singles on line {:?} of {}\n{}",
+                    line.section_type, line.index, grid
+                );
             }
         }
         if search_single_possibility(line) {
@@ -642,7 +719,10 @@ fn solve_line(grid: &Grid, line: &Section, solve_controller: &SolveController, s
     if solve_controller.search_hidden_singles() {
         unsafe {
             if DEBUG {
-                println!("Searching for hidden singles on line {:?} of {}\n{}", line.section_type, line.index, grid);
+                println!(
+                    "Searching for hidden singles on line {:?} of {}\n{}",
+                    line.section_type, line.index, grid
+                );
             }
         }
         if search_hidden_single(line) {
@@ -653,7 +733,10 @@ fn solve_line(grid: &Grid, line: &Section, solve_controller: &SolveController, s
     if solve_controller.find_possibility_groups() {
         unsafe {
             if DEBUG {
-                println!("Searching for possibility groups on line {:?} of {}\n{}", line.section_type, line.index, grid);
+                println!(
+                    "Searching for possibility groups on line {:?} of {}\n{}",
+                    line.section_type, line.index, grid
+                );
             }
         }
         if process_possibility_groups::identify_and_process_possibility_groups(line) {
@@ -664,14 +747,16 @@ fn solve_line(grid: &Grid, line: &Section, solve_controller: &SolveController, s
     if solve_controller.search_useful_constraint() {
         unsafe {
             if DEBUG {
-                println!("Searching for useful constraints on line {:?} of {}\n{}", line.section_type, line.index, grid);
+                println!(
+                    "Searching for useful constraints on line {:?} of {}\n{}",
+                    line.section_type, line.index, grid
+                );
             }
         }
         if search_useful_constraint::search_useful_constraint(grid, line) {
             solve_statistics.increment(&SolveAction::UsefulConstraints);
         }
     }
-
 }
 
 /// Solves (and modifies) the input `Grid`. Returns a `SolveStatus` and `SolveStatistics`, and
@@ -685,17 +770,22 @@ pub fn solve_grid(grid: &mut Grid) -> (SolveStatus, SolveStatistics) {
         search_hidden_singles: true,
         find_possibility_groups: true,
         search_useful_constraint: true,
-        make_guesses: true
+        make_guesses: true,
     };
 
     let mut solve_statistics = SolveStatistics::new();
-    let solve_status = solve_grid_with_solve_controller(grid, &solve_controller, &mut solve_statistics);
+    let solve_status =
+        solve_grid_with_solve_controller(grid, &solve_controller, &mut solve_statistics);
 
     return (solve_status, solve_statistics);
 }
 
 /// Solves (and modifies) the input `Grid` & `SolveStatistics`. Returns a `SolveStatus`.
-pub fn solve_grid_with_solve_controller(grid: &mut Grid, solve_controller: &SolveController, solve_statistics: &mut SolveStatistics) -> SolveStatus{
+pub fn solve_grid_with_solve_controller(
+    grid: &mut Grid,
+    solve_controller: &SolveController,
+    solve_statistics: &mut SolveStatistics,
+) -> SolveStatus {
     // Code is kind of messy so here it goes - solve_grid first tries to solve without any guesses
     // If that's not enough and a guess is required, then solve_grid_guess is called
     // solve_grid_guess runs through all the possibilities for the smallest cell, trying to solve them
@@ -711,8 +801,8 @@ pub fn solve_grid_with_solve_controller(grid: &mut Grid, solve_controller: &Solv
             } else {
                 SolveStatus::Complete(Some(Uniqueness::NotUnique)) // solve_grid_no_guess couldn't finish and we can't make guesses, so it's 'not unique' in the sense that we need more guesses
             }
-        },
-        _ => {status}
+        }
+        _ => status,
     };
 
     return status;
@@ -721,17 +811,24 @@ pub fn solve_grid_with_solve_controller(grid: &mut Grid, solve_controller: &Solv
 /// Similar to `solve_grid_with_solve_controller` except that we don't modify the input Grid; we
 /// only determine SolveStatus. This is useful when generating puzzles where we need to know *if*
 /// a puzzle can be solved but don't want to actually solve it.
-pub fn evaluate_grid_with_solve_controller(grid: &Grid, solve_controller: &SolveController) -> (SolveStatus, SolveStatistics){
+pub fn evaluate_grid_with_solve_controller(
+    grid: &Grid,
+    solve_controller: &SolveController,
+) -> (SolveStatus, SolveStatistics) {
     let mut mut_grid = grid.clone();
     let mut solve_statistics = SolveStatistics::new();
 
-    let solve_status = solve_grid_with_solve_controller(&mut mut_grid, solve_controller, &mut solve_statistics);
+    let solve_status =
+        solve_grid_with_solve_controller(&mut mut_grid, solve_controller, &mut solve_statistics);
 
     return (solve_status, solve_statistics);
 }
 
-fn solve_grid_no_guess(grid: &mut Grid, solve_controller: &SolveController, solve_statistics: &mut SolveStatistics) -> SolveStatus{
-
+fn solve_grid_no_guess(
+    grid: &mut Grid,
+    solve_controller: &SolveController,
+    solve_statistics: &mut SolveStatistics,
+) -> SolveStatus {
     loop {
         let mut ran_something = false;
         for (_index, line_ref) in grid.rows.iter().enumerate() {
@@ -759,7 +856,8 @@ fn solve_grid_no_guess(grid: &mut Grid, solve_controller: &SolveController, solv
             }
         }
 
-        if !ran_something{ // No lines have changed since we last analyzed them
+        if !ran_something {
+            // No lines have changed since we last analyzed them
             return SolveStatus::Unfinished;
         }
 
@@ -776,9 +874,8 @@ fn solve_grid_no_guess(grid: &mut Grid, solve_controller: &SolveController, solv
                         appears_complete = false;
                         if possibilities.len() == 0 {
                             return SolveStatus::Invalid;
-
                         }
-                    },
+                    }
                     CellValue::Fixed(_) => {}
                 }
             }
@@ -790,16 +887,19 @@ fn solve_grid_no_guess(grid: &mut Grid, solve_controller: &SolveController, solv
             return SolveStatus::Complete(Some(Uniqueness::Unique));
         }
     }
-
 }
 
-fn solve_grid_guess(grid: &mut Grid, solve_controller: &SolveController, solve_statistics: &mut SolveStatistics) -> SolveStatus{
+fn solve_grid_guess(
+    grid: &mut Grid,
+    solve_controller: &SolveController,
+    solve_statistics: &mut SolveStatistics,
+) -> SolveStatus {
     solve_statistics.increment(&SolveAction::Guess);
 
     let smallest_cell = grid.find_smallest_cell();
     let smallest_cell = match smallest_cell {
         Some(cell) => cell,
-        None => return SolveStatus::Invalid
+        None => return SolveStatus::Invalid,
     };
 
     let possibilities = smallest_cell.get_value_possibilities().unwrap();
@@ -808,16 +908,19 @@ fn solve_grid_guess(grid: &mut Grid, solve_controller: &SolveController, solve_s
     let mut grid_solution = None;
 
     for (_index, &digit) in possibilities.iter().enumerate() {
-
         let mut grid_copy = grid.clone();
-        grid_copy.get(smallest_cell.x, smallest_cell.y).unwrap().set(digit);
-        let status = solve_grid_with_solve_controller(&mut grid_copy, solve_controller, solve_statistics);
+        grid_copy
+            .get(smallest_cell.x, smallest_cell.y)
+            .unwrap()
+            .set(digit);
+        let status =
+            solve_grid_with_solve_controller(&mut grid_copy, solve_controller, solve_statistics);
 
         // Keep a copy of grid_copy in case we later mutate grid with it
         match status {
             SolveStatus::Complete(_) => {
                 grid_solution = Some(grid_copy);
-            },
+            }
             _ => {}
         }
 
@@ -830,34 +933,37 @@ fn solve_grid_guess(grid: &mut Grid, solve_controller: &SolveController, solve_s
                     break; // no point in continuing
                 }
 
-                let uniqueness = uniqueness.expect("We're looking for uniqueness and yet an earlier function didn't make a claim");
+                let uniqueness = uniqueness.expect(
+                    "We're looking for uniqueness and yet an earlier function didn't make a claim",
+                );
                 match uniqueness {
-                    Uniqueness::Unique => {continue;} // gotta keep on checking
+                    Uniqueness::Unique => {
+                        continue;
+                    } // gotta keep on checking
                     Uniqueness::NotUnique => {
                         break; // We can stop looking as we already found at least two solutions
                     }
                 }
             }
-            SolveStatus::Unfinished => {continue} // Keep looking for a solution
-            SolveStatus::Invalid => panic!("current_status should not be INVALID at this point")
+            SolveStatus::Unfinished => continue, // Keep looking for a solution
+            SolveStatus::Invalid => panic!("current_status should not be INVALID at this point"),
         }
-
-
     }
 
     // We've finished the for-loop
     match current_status {
         SolveStatus::Complete(_) => {
-            grid.clone_from(&grid_solution.expect("grid_solution should have value if we found a solution"));
-        },
+            grid.clone_from(
+                &grid_solution.expect("grid_solution should have value if we found a solution"),
+            );
+        }
         SolveStatus::Unfinished => {
             current_status = SolveStatus::Invalid; // We can now say Invalid
-        },
+        }
         SolveStatus::Invalid => {}
     }
 
     return current_status;
-
 }
 
 #[cfg(test)]
@@ -866,72 +972,87 @@ mod tests {
     use crate::solver::*;
 
     #[test]
-    fn test_search_single_possibility(){
+    fn test_search_single_possibility() {
         let grid = Grid::new();
 
         for i in 0..8 {
-            grid.get(0, i).unwrap().set(i as u8 +1);
+            grid.get(0, i).unwrap().set(i as u8 + 1);
         }
 
-        assert_eq!(CellValue::Unknown(vec![9]), grid.get(0, 8).unwrap().get_value_copy());
+        assert_eq!(
+            CellValue::Unknown(vec![9]),
+            grid.get(0, 8).unwrap().get_value_copy()
+        );
 
         let line = grid.rows.first().unwrap();
         let line = &*(**line).borrow();
 
         search_single_possibility(line);
 
-        assert_eq!(CellValue::Fixed(9), grid.get(0, 8).unwrap().get_value_copy());
+        assert_eq!(
+            CellValue::Fixed(9),
+            grid.get(0, 8).unwrap().get_value_copy()
+        );
     }
 
     #[test]
-    fn test_identify_and_process_possibility_groups(){
+    fn test_identify_and_process_possibility_groups() {
         let grid = Grid::new();
 
         // Fill up the first row with values, except for the first section
         for i in 3..6 {
-            grid.get(0, i).unwrap().set(i as u8 +1);
+            grid.get(0, i).unwrap().set(i as u8 + 1);
         }
         grid.get(1, 6).unwrap().set(1);
         grid.get(1, 7).unwrap().set(2);
         grid.get(1, 8).unwrap().set(3);
 
-        assert_eq!(CellValue::Unknown(vec![1, 2, 3, 7, 8, 9]), grid.get(0, 0).unwrap().get_value_copy());
+        assert_eq!(
+            CellValue::Unknown(vec![1, 2, 3, 7, 8, 9]),
+            grid.get(0, 0).unwrap().get_value_copy()
+        );
 
         let line = grid.rows.first().unwrap();
         let line = &*(**line).borrow();
 
         process_possibility_groups::identify_and_process_possibility_groups(line);
 
-        assert_eq!(CellValue::Unknown(vec![1, 2, 3]), grid.get(0, 0).unwrap().get_value_copy());
+        assert_eq!(
+            CellValue::Unknown(vec![1, 2, 3]),
+            grid.get(0, 0).unwrap().get_value_copy()
+        );
     }
 
     #[test]
-    fn test_search_useful_constraint_1(){
+    fn test_search_useful_constraint_1() {
         let grid = Grid::new();
 
         // Fill up the first row with values, except for the first section
         for i in 3..6 {
-            grid.get(0, i).unwrap().set(i as u8 +1);
+            grid.get(0, i).unwrap().set(i as u8 + 1);
         }
         grid.get(1, 6).unwrap().set(1);
         grid.get(1, 7).unwrap().set(2);
         grid.get(1, 8).unwrap().set(3);
 
-
-
-        assert_eq!(CellValue::Unknown(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]), grid.get(2, 0).unwrap().get_value_copy());
+        assert_eq!(
+            CellValue::Unknown(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]),
+            grid.get(2, 0).unwrap().get_value_copy()
+        );
 
         let line = grid.rows.first().unwrap();
         let line = &*(**line).borrow();
 
         search_useful_constraint::search_useful_constraint(&grid, line);
 
-        assert_eq!(CellValue::Unknown(vec![4, 5, 6, 7, 8, 9]), grid.get(2, 0).unwrap().get_value_copy());
+        assert_eq!(
+            CellValue::Unknown(vec![4, 5, 6, 7, 8, 9]),
+            grid.get(2, 0).unwrap().get_value_copy()
+        );
     }
 
-
     #[test]
-    fn test_search_useful_constraint_2(){
+    fn test_search_useful_constraint_2() {
         let grid = Grid::new();
 
         // These values come from a specific bug example where a constraint was incorrectly identified
@@ -942,15 +1063,29 @@ mod tests {
         grid.get(6, 1).unwrap().set(8);
         grid.get(8, 2).unwrap().set(7);
 
-        grid.get(0, 1).unwrap().set_value(CellValue::Unknown(vec![1, 3, 4, 7, 9]));
-        grid.get(1, 1).unwrap().set_value(CellValue::Unknown(vec![1, 3, 4, 5, 9]));
-        grid.get(2, 1).unwrap().set_value(CellValue::Unknown(vec![1, 2]));
-        grid.get(4, 1).unwrap().set_value(CellValue::Unknown(vec![1, 3, 4, 7]));
-        grid.get(7, 1).unwrap().set_value(CellValue::Unknown(vec![1, 2, 3, 9]));
-        grid.get(8, 1).unwrap().set_value(CellValue::Unknown(vec![1, 2, 3, 5, 9]));
+        grid.get(0, 1)
+            .unwrap()
+            .set_value(CellValue::Unknown(vec![1, 3, 4, 7, 9]));
+        grid.get(1, 1)
+            .unwrap()
+            .set_value(CellValue::Unknown(vec![1, 3, 4, 5, 9]));
+        grid.get(2, 1)
+            .unwrap()
+            .set_value(CellValue::Unknown(vec![1, 2]));
+        grid.get(4, 1)
+            .unwrap()
+            .set_value(CellValue::Unknown(vec![1, 3, 4, 7]));
+        grid.get(7, 1)
+            .unwrap()
+            .set_value(CellValue::Unknown(vec![1, 2, 3, 9]));
+        grid.get(8, 1)
+            .unwrap()
+            .set_value(CellValue::Unknown(vec![1, 2, 3, 5, 9]));
 
         // 5 is wrongly removed here
-        grid.get(1, 0).unwrap().set_value(CellValue::Unknown(vec![1, 3, 4, 5, 9]));
+        grid.get(1, 0)
+            .unwrap()
+            .set_value(CellValue::Unknown(vec![1, 3, 4, 5, 9]));
 
         println!("{}", grid);
 
@@ -959,8 +1094,10 @@ mod tests {
 
         search_useful_constraint::search_useful_constraint(&grid, line);
 
-        assert_eq!(CellValue::Unknown(vec![1, 3, 4, 5, 9]), grid.get(1, 0).unwrap().get_value_copy());
-
+        assert_eq!(
+            CellValue::Unknown(vec![1, 3, 4, 5, 9]),
+            grid.get(1, 0).unwrap().get_value_copy()
+        );
     }
 
     #[test]
@@ -985,10 +1122,13 @@ mod tests {
 
         search_hidden_single(&first_row);
 
-        assert_eq!(CellValue::Fixed(1), grid.get(0, 0).unwrap().get_value_copy());
-        assert_eq!(CellValue::Fixed(2), grid.get(0, 2).unwrap().get_value_copy());
-
+        assert_eq!(
+            CellValue::Fixed(1),
+            grid.get(0, 0).unwrap().get_value_copy()
+        );
+        assert_eq!(
+            CellValue::Fixed(2),
+            grid.get(0, 2).unwrap().get_value_copy()
+        );
     }
-
-
 }

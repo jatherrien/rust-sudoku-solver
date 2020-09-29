@@ -3,19 +3,21 @@ use std::str::FromStr;
 use sudoku_solver::grid::Grid;
 use sudoku_solver::solver::solve_grid;
 
-
 fn main() {
     let mut debug = false;
     let mut filename = String::new();
-    { // this block limits scope of borrows by ap.refer() method
+    {
+        // this block limits scope of borrows by ap.refer() method
         let mut ap = argparse::ArgumentParser::new();
         ap.set_description("Solve Sudoku puzzles");
         ap.refer(&mut debug)
             .add_option(&["--debug"], argparse::StoreTrue, "Run in debug mode");
 
-        ap.refer(&mut filename)
-            .required()
-            .add_argument("filename", argparse::Store, "Path to puzzle CSV file");
+        ap.refer(&mut filename).required().add_argument(
+            "filename",
+            argparse::Store,
+            "Path to puzzle CSV file",
+        );
 
         ap.parse_args_or_exit();
     }
@@ -26,7 +28,6 @@ fn main() {
             sudoku_solver::solver::DEBUG = true;
         }
     }
-
 
     let mut grid = match read_grid(&filename) {
         Ok(grid) => grid,
@@ -42,8 +43,6 @@ fn main() {
     solve_grid(&mut grid);
 
     println!("Solved grid:\n{}", grid);
-
-
 }
 
 fn read_grid(filename: &str) -> Result<Grid, String> {
@@ -78,18 +77,15 @@ fn read_grid(filename: &str) -> Result<Grid, String> {
                             if digit > 0 {
                                 grid.get(row, column).unwrap().set(digit);
                             }
-
-                        },
-                        Err(_error) => {return Err("Invalid cell value".to_string())}
+                        }
+                        Err(_error) => return Err("Invalid cell value".to_string()),
                     };
-
-                },
+                }
                 None => {}
             }
         }
 
         row = row + 1;
-
     }
 
     return Ok(grid);
