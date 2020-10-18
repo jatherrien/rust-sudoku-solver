@@ -56,6 +56,9 @@ impl Difficulty {
         controller
     }
 
+    // Note that we only need to check for minimum requirements because easier difficulities
+    // have turned off parts of the solver. For example, Difficulty::EASY cannot have any
+    // guesses simply by virtue of not allowing guesses during the generation process.
     fn meets_minimum_requirements(&self, solve_statistics: &SolveStatistics) -> bool {
         match self {
             Difficulty::Challenge => {
@@ -64,12 +67,12 @@ impl Difficulty {
                     && (solve_statistics.useful_constraints > 20)
             }
             Difficulty::Hard => {
-                (solve_statistics.possibility_groups > 20)
-                    && (solve_statistics.useful_constraints > 20)
+                (solve_statistics.possibility_groups > 5)
+                    && (solve_statistics.useful_constraints > 10)
             }
             Difficulty::Medium => {
-                (solve_statistics.possibility_groups > 10)
-                    && (solve_statistics.useful_constraints > 10)
+                (solve_statistics.possibility_groups > 5)
+                    && (solve_statistics.useful_constraints > 5)
             }
             Difficulty::Easy => true, // easy has no minimum
         }
@@ -162,6 +165,7 @@ fn main() {
             max_attempts,
             max_hints,
             &AtomicBool::new(false),
+            debug
         )
     } else {
         run_multi_threaded(
@@ -256,6 +260,7 @@ fn run_multi_threaded(
                 thread_attempts,
                 max_hints,
                 should_stop,
+                debug
             );
 
             let mut result_was_some = false;
@@ -308,6 +313,7 @@ fn get_puzzle_matching_conditions(
     max_attempts: i32,
     max_hints: i32,
     should_stop: &AtomicBool,
+    debug: bool
 ) -> (Option<(Grid, SolveStatistics, i32)>, i32) {
     let mut num_attempts = 0;
 
@@ -315,6 +321,10 @@ fn get_puzzle_matching_conditions(
         let (grid, num_hints, solve_statistics) =
             sudoku_solver::generator::generate_grid(rng, &solve_controller);
         num_attempts += 1;
+
+        if debug {
+            println!("Found puzzle with {:#?}", solve_statistics);
+        }
 
         if difficulty.meets_minimum_requirements(&solve_statistics) && num_hints <= max_hints {
             return (Some((grid, solve_statistics, num_hints)), num_attempts);

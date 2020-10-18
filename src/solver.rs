@@ -114,7 +114,7 @@ impl SolveController {
 /// that the method make at least one change to the line it was originally called on, whether that
 /// be setting a value or adjusting the possibilities in a cell. Multiple contributions in one call
 /// of the strategy on a `Section` are only counted as one contribution.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct SolveStatistics {
     pub singles: u32,
     pub hidden_singles: u32,
