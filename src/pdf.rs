@@ -9,12 +9,13 @@ const GRID_DIMENSION: f64 = 190.0;
 
 const A4: (Mm, Mm) = (Mm(215.0), Mm(279.0));
 
-pub fn draw_grid(grid: &Grid, filename: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn draw_grid(grid: &Grid, filename: &str, print_possibilities: bool) -> Result<(), Box<dyn std::error::Error>> {
     let (doc, page1, layer1) = PdfDocument::new("Sudoku Puzzle", A4.0, A4.1, "Layer 1");
     let layer = doc.get_page(page1).get_layer(layer1);
 
     let font = doc.add_builtin_font(BuiltinFont::HelveticaBold)?;
-    let font_size = 45;
+    let fixed_value_font_size = 45;
+    let possibility_font_size = 12;
 
     draw_empty_grid(&layer);
 
@@ -39,9 +40,23 @@ pub fn draw_grid(grid: &Grid, filename: &str) -> Result<(), Box<dyn std::error::
             match value {
                 CellValue::Fixed(digit) => {
                     let text = digit.to_string();
-                    layer.use_text(text, font_size, x, y, &font);
+                    layer.use_text(text, fixed_value_font_size, x, y, &font);
                 }
-                _ => {}
+                CellValue::Unknown(possibilities) => {
+                    if print_possibilities {
+                        for (_, possibility) in possibilities.iter().enumerate() {
+
+                            let sub_row = (possibility - 1) / 3;
+                            let sub_column = (possibility - 1) % 3;
+                            // Need to adjust x & y
+                            let x = Mm(x.0 - 4.0 + (GRID_DIMENSION / 27.0) * (sub_column as f64));
+                            let y = Mm(y.0 - 9.5 + (GRID_DIMENSION / 27.0) * (3.0 - sub_row as f64));
+
+                            let text = possibility.to_string();
+                            layer.use_text(text, possibility_font_size, x, y, &font);
+                        }
+                    }
+                }
             }
         }
     }

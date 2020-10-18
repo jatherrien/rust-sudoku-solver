@@ -102,6 +102,7 @@ fn main() {
     let mut filename: Option<String> = None;
     let mut difficulty = Difficulty::Challenge;
     let mut threads = 1;
+    let mut print_possibilities = false;
 
     {
         // this block limits scope of borrows by ap.refer() method
@@ -136,6 +137,13 @@ fn main() {
             argparse::Store,
             "Number of threads to use when generating possible puzzles",
         );
+
+        ap.refer(&mut print_possibilities)
+            .add_option(
+            &["-p", "--possibilities"],
+            argparse::StoreTrue,
+            "Include each cell's possibilities in the output; applies only to PDF output"
+            );
 
         ap.parse_args_or_exit();
     }
@@ -202,7 +210,7 @@ fn main() {
         Some(filename) => {
             // check if we save to a csv or a pdf
             if filename.ends_with(".pdf") {
-                sudoku_solver::pdf::draw_grid(&grid, &filename).unwrap();
+                sudoku_solver::pdf::draw_grid(&grid, &filename, print_possibilities).unwrap();
                 println!("Grid saved as pdf to {}", filename);
             } else {
                 save_grid_csv(&grid, &filename).unwrap();
